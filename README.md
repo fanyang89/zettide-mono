@@ -31,11 +31,16 @@ but the unified installation and cluster lifecycle are not production-ready.
 | [`zettide`](zettide/) | Portable volume format and Linux FUSE filesystem | Zig, littlefs, FUSE 3 |
 | [`etz`](etz/) | Authenticated private networking across untrusted connectivity | Zig, TUN, EasyTier |
 | [`raft-zig`](raft-zig/) | Consensus, membership, WAL, and replicated-state orchestration | Zig |
-| [`grpc-lite`](grpc-lite/) | Lightweight asynchronous RPC transport | Zig, nghttp2, libxev |
+| [`grpc-lite`](grpc-lite/) | Shared Zig runtime services and lightweight asynchronous RPC | Zig, nghttp2, libxev |
 
 This repository is the integration workspace. Each component remains an
 independent Git submodule with its own release history and detailed
 documentation.
+
+`grpc-lite` is the foundational dependency for Zettide's Zig components.
+Reusable runtime facilities belong there rather than being reimplemented in
+individual services; protocol- and product-specific behavior stays with its
+own component.
 
 ## Development Setup
 
