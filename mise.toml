@@ -1,0 +1,132 @@
+[settings]
+task.output = "prefix"
+
+[tools]
+zig = "0.16.0"
+rust = "1.97.1"
+node = "24.18.0"
+pnpm = "11.9.0"
+task = "3.48.0"
+cmake = "4.3.4"
+ninja = "1.13.2"
+
+[tasks.submodules]
+hide = true
+description = "Initialize all Git submodules"
+run = "git submodule update --init --recursive"
+
+[tasks."bootstrap:grpc-lite"]
+hide = true
+depends = ["submodules"]
+dir = "{{ config_root }}/grpc-lite"
+run = "mise run bootstrap"
+
+[tasks."bootstrap:qtr"]
+hide = true
+depends = ["submodules"]
+dir = "{{ config_root }}/qtr/web"
+run = "pnpm install --frozen-lockfile"
+
+[tasks.bootstrap]
+description = "Initialize submodules and project dependencies"
+depends = ["bootstrap:grpc-lite", "bootstrap:qtr"]
+
+[tasks.update]
+description = "Update all submodules and commit their revisions"
+run = '''
+set -eu
+git submodule update --init --remote --recursive
+git add grpc-lite raft-zig etz qtr zettide
+if git diff --cached --quiet; then
+  printf '%s\n' "All submodules are already up to date"
+  exit 0
+fi
+git commit -m "chore: update submodules"
+'''
+
+[tasks."build:grpc-lite"]
+description = "Build grpc-lite in ReleaseFast mode"
+dir = "{{ config_root }}/grpc-lite"
+run = "zig build -Doptimize=ReleaseFast"
+
+[tasks."build:raft-zig"]
+description = "Build raft-zig in ReleaseFast mode"
+dir = "{{ config_root }}/raft-zig"
+run = "zig build -Doptimize=ReleaseFast"
+
+[tasks."build:etz"]
+description = "Build etz in ReleaseFast mode"
+dir = "{{ config_root }}/etz"
+run = "zig build -Doptimize=ReleaseFast"
+
+[tasks."build:zettide"]
+description = "Build the Zettide volume in ReleaseFast mode"
+dir = "{{ config_root }}/zettide"
+run = "zig build -Doptimize=ReleaseFast"
+
+[tasks."build:qtr"]
+description = "Build the qtr service and web console"
+dir = "{{ config_root }}/qtr"
+run = ["cargo build --release", "pnpm -C web build"]
+
+[tasks.build]
+description = "Build all Zettide components"
+run = [{ tasks = ["build:grpc-lite", "build:raft-zig", "build:etz", "build:zettide", "build:qtr"] }]
+
+[tasks."test:grpc-lite"]
+description = "Test grpc-lite"
+dir = "{{ config_root }}/grpc-lite"
+run = "mise run test"
+
+[tasks."test:raft-zig"]
+description = "Test raft-zig"
+dir = "{{ config_root }}/raft-zig"
+run = "mise run test"
+
+[tasks."test:etz"]
+description = "Test etz"
+dir = "{{ config_root }}/etz"
+run = "zig build test --summary all"
+
+[tasks."test:zettide"]
+description = "Test the Zettide volume"
+dir = "{{ config_root }}/zettide"
+run = "zig build test --summary all"
+
+[tasks."test:qtr"]
+description = "Test the qtr service and web console"
+dir = "{{ config_root }}/qtr"
+run = "task test"
+
+[tasks.test]
+description = "Test all Zettide components"
+run = [{ tasks = ["test:grpc-lite", "test:raft-zig", "test:etz", "test:zettide", "test:qtr"] }]
+
+[tasks."check:grpc-lite"]
+hide = true
+dir = "{{ config_root }}/grpc-lite"
+run = "mise run check"
+
+[tasks."check:raft-zig"]
+hide = true
+dir = "{{ config_root }}/raft-zig"
+run = "mise run check"
+
+[tasks."check:etz"]
+hide = true
+dir = "{{ config_root }}/etz"
+run = ["zig fmt --check build.zig src", "zig build test --summary all"]
+
+[tasks."check:zettide"]
+hide = true
+dir = "{{ config_root }}/zettide"
+run = ["zig fmt --check build.zig src test", "zig build ci --summary all"]
+
+[tasks."check:qtr"]
+hide = true
+dir = "{{ config_root }}/qtr"
+run = "task check"
+
+[tasks.check]
+description = "Run formatting, tests, and builds for all components"
+run = [{ tasks = ["check:grpc-lite", "check:raft-zig", "check:etz", "check:zettide", "check:qtr"] }]
