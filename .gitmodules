@@ -1,0 +1,20 @@
+[submodule "grpc-lite"]
+	path = grpc-lite
+	url = https://github.com/fanyang89/grpc-lite.git
+	branch = main
+[submodule "raft-zig"]
+	path = raft-zig
+	url = https://github.com/fanyang89/raft-zig.git
+	branch = main
+[submodule "etz"]
+	path = etz
+	url = https://github.com/fanyang89/etz.git
+	branch = main
+[submodule "qtr"]
+	path = qtr
+	url = https://github.com/fanyang89/qtr.git
+	branch = main
+[submodule "zettide"]
+	path = zettide
+	url = https://github.com/fanyang89/zettide.git
+	branch = main
