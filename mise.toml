@@ -36,6 +36,14 @@ run = "pnpm install --frozen-lockfile"
 description = "Initialize submodules and project dependencies"
 depends = ["bootstrap:grpc-lite", "bootstrap:qtr"]
 
+[tasks.fetch]
+description = "Fetch the workspace and all initialized submodules"
+run = '''
+set -eu
+git fetch --all --prune
+git submodule foreach --recursive 'git fetch --all --prune'
+'''
+
 [tasks.update]
 description = "Update all submodules and commit their revisions"
 run = '''
