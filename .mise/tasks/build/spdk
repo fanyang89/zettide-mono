@@ -5,7 +5,7 @@ set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
 cd "$root/third_party/spdk"
-options="--with-shared --disable-tests --disable-unit-tests --disable-examples --disable-apps --without-nvme-cuse --without-vhost --without-virtio --without-fsdev"
+options="--with-shared --with-rdma --with-uring --disable-tests --disable-unit-tests --disable-examples --disable-apps --without-nvme-cuse --without-vhost --without-virtio --without-fsdev"
 build_path="$(pwd)/build"
 if ! grep -Fqx "# configure options: $options" mk/config.mk 2>/dev/null || \
    ! grep -Fq "$build_path/include" build/lib/pkgconfig/spdk_event.pc 2>/dev/null || \
