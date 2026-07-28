@@ -26,3 +26,7 @@
 	path = references/EasyTier
 	url = https://github.com/EasyTier/EasyTier
 	branch = main
+[submodule "zettide-control"]
+	path = zettide-control
+	url = https://github.com/fanyang89/zettide-control.git
+	branch = main
