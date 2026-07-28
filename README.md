@@ -37,9 +37,10 @@ This repository is the integration workspace. Each component remains an
 independent Git submodule with its own release history and detailed
 documentation.
 
-[`spdk`](spdk/) is a pinned third-party source dependency for Zettide's Linux
-storage data plane. It is built by this workspace but is not an independently
-released Zettide component.
+[`EasyTier`](EasyTier/) and [`spdk`](spdk/) are pinned third-party source
+dependencies for the networking and Linux storage data planes. They are built
+or exercised by this workspace but are not independently released Zettide
+components.
 
 `grpc-lite` is the foundational dependency for Zettide's Zig components.
 Reusable runtime facilities belong there rather than being reimplemented in

@@ -22,3 +22,7 @@
 	path = spdk
 	url = https://github.com/fanyang89/spdk.git
 	branch = master
+[submodule "EasyTier"]
+	path = EasyTier
+	url = https://github.com/EasyTier/EasyTier
+	branch = main

@@ -42,7 +42,7 @@ run = '''
 set -eu
 git submodule update --init --remote
 git submodule update --init --recursive
-git add grpc-lite raft-zig etz qtr zettide spdk
+git add grpc-lite raft-zig etz qtr zettide spdk EasyTier
 if git diff --cached --quiet; then
   printf '%s\n' "All submodules are already up to date"
   exit 0
