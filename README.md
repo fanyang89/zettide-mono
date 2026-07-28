@@ -29,6 +29,7 @@ but the unified installation and cluster lifecycle are not production-ready.
 | --- | --- | --- |
 | [`qtr`](qtr/) | VM lifecycle, host setup, storage attachment, and web control plane | Rust, React, libvirt/QEMU |
 | [`zettide`](zettide/) | Portable volume format and Linux FUSE filesystem | Zig, littlefs, FUSE 3 |
+| [`zettide-control`](zettide-control/) | Raft-replicated storage metadata and cluster coordination | Zig, raft-zig, grpc-lite |
 | [`etz`](etz/) | Authenticated private networking across untrusted connectivity | Zig, TUN, EasyTier |
 | [`raft-zig`](raft-zig/) | Consensus, membership, WAL, and replicated-state orchestration | Zig |
 | [`grpc-lite`](grpc-lite/) | Shared Zig runtime services and lightweight asynchronous RPC | Zig, nghttp2, libxev |
@@ -50,6 +51,12 @@ External repositories are separated by how the workspace uses them:
 Reusable runtime facilities belong there rather than being reimplemented in
 individual services; protocol- and product-specific behavior stays with its
 own component.
+
+## Architecture
+
+The [Zettide distributed storage architecture](docs/architecture/zh-CN/README.md)
+documents the current implementation, target control and data planes, consistency
+model, failure behavior, security boundary, and evolution roadmap.
 
 ## Development Setup
 
