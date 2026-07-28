@@ -37,6 +37,10 @@ This repository is the integration workspace. Each component remains an
 independent Git submodule with its own release history and detailed
 documentation.
 
+[`spdk`](spdk/) is a pinned third-party source dependency for Zettide's Linux
+storage data plane. It is built by this workspace but is not an independently
+released Zettide component.
+
 `grpc-lite` is the foundational dependency for Zettide's Zig components.
 Reusable runtime facilities belong there rather than being reimplemented in
 individual services; protocol- and product-specific behavior stays with its
@@ -62,6 +66,7 @@ Install [mise](https://mise.jdx.dev/), then initialize the workspace:
 ```sh
 git clone --recurse-submodules <repository-url> Zettide
 cd Zettide
+sudo PATH=/usr/bin:$PATH spdk/scripts/pkgdep.sh
 mise trust
 mise install
 mise run bootstrap
@@ -69,6 +74,10 @@ mise run bootstrap
 
 `mise` pins Zig, Rust, Node.js, pnpm, CMake, Ninja, and Task. The bootstrap task
 initializes nested source dependencies and installs the qtr web dependencies.
+The SPDK dependency installer is an explicit host setup step because it uses the
+Fedora package manager and requires root privileges. The SPDK build itself
+prefers `/usr/bin/python3` so its RPM-provided `tabulate` and `pyelftools`
+modules are available even when a user-local Python precedes it in `PATH`.
 See [`qtr/README.md`](qtr/README.md) for the complete Fedora virtualization
 runtime setup.
 
@@ -79,6 +88,11 @@ Build every component with production-oriented optimization:
 ```sh
 mise run build
 ```
+
+The root build compiles a minimal shared SPDK library set before Zettide and
+runs Zettide's SPDK header and link probe. It does not allocate hugepages, start
+the SPDK application framework, or bind storage devices. Build SPDK alone with
+`mise run build:spdk`.
 
 Run all default test suites:
 

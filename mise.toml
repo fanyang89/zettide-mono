@@ -15,6 +15,11 @@ hide = true
 description = "Initialize all Git submodules"
 run = "git submodule update --init --recursive"
 
+[tasks."submodule:spdk"]
+hide = true
+description = "Initialize the SPDK Git submodule"
+run = "git submodule update --init --recursive spdk"
+
 [tasks."bootstrap:grpc-lite"]
 hide = true
 depends = ["submodules"]
@@ -35,8 +40,9 @@ depends = ["bootstrap:grpc-lite", "bootstrap:qtr"]
 description = "Update all submodules and commit their revisions"
 run = '''
 set -eu
-git submodule update --init --remote --recursive
-git add grpc-lite raft-zig etz qtr zettide
+git submodule update --init --remote
+git submodule update --init --recursive
+git add grpc-lite raft-zig etz qtr zettide spdk
 if git diff --cached --quiet; then
   printf '%s\n' "All submodules are already up to date"
   exit 0
@@ -59,10 +65,27 @@ description = "Build etz in ReleaseFast mode"
 dir = "{{ config_root }}/etz"
 run = "zig build -Doptimize=ReleaseFast"
 
+[tasks."build:spdk"]
+description = "Build the shared SPDK libraries"
+depends = ["submodule:spdk"]
+dir = "{{ config_root }}/spdk"
+run = '''
+set -eu
+options="--with-shared --disable-tests --disable-unit-tests --disable-examples --disable-apps --without-nvme-cuse --without-vhost --without-virtio --without-fsdev"
+if ! grep -Fqx "# configure options: $options" mk/config.mk 2>/dev/null; then
+  PATH=/usr/bin:$PATH ./configure $options
+fi
+PATH=/usr/bin:$PATH make -j$(nproc)
+'''
+
 [tasks."build:zettide"]
-description = "Build the Zettide volume in ReleaseFast mode"
+description = "Build Zettide and verify its SPDK link boundary"
+depends = ["build:spdk"]
 dir = "{{ config_root }}/zettide"
-run = "zig build -Doptimize=ReleaseFast"
+run = [
+  "zig build -Doptimize=ReleaseFast",
+  "PKG_CONFIG_PATH={{ config_root }}/spdk/build/lib/pkgconfig zig build test-spdk-link -Doptimize=ReleaseFast",
+]
 
 [tasks."build:qtr"]
 description = "Build the qtr service and web console"
@@ -90,8 +113,12 @@ run = "zig build test --summary all"
 
 [tasks."test:zettide"]
 description = "Test the Zettide volume"
+depends = ["build:spdk"]
 dir = "{{ config_root }}/zettide"
-run = "zig build test --summary all"
+run = [
+  "zig build test --summary all",
+  "PKG_CONFIG_PATH={{ config_root }}/spdk/build/lib/pkgconfig zig build test-spdk-link --summary all",
+]
 
 [tasks."test:qtr"]
 description = "Test the qtr service and web console"
@@ -119,8 +146,13 @@ run = ["zig fmt --check build.zig src", "zig build test --summary all"]
 
 [tasks."check:zettide"]
 hide = true
+depends = ["build:spdk"]
 dir = "{{ config_root }}/zettide"
-run = ["zig fmt --check build.zig src test", "zig build ci --summary all"]
+run = [
+  "zig fmt --check build.zig src test",
+  "zig build ci --summary all",
+  "PKG_CONFIG_PATH={{ config_root }}/spdk/build/lib/pkgconfig zig build test-spdk-link --summary all",
+]
 
 [tasks."check:qtr"]
 hide = true

@@ -18,3 +18,7 @@
 	path = zettide
 	url = https://github.com/fanyang89/zettide.git
 	branch = main
+[submodule "spdk"]
+	path = spdk
+	url = https://github.com/fanyang89/spdk.git
+	branch = master
