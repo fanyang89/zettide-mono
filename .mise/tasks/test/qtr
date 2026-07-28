@@ -1,0 +1,7 @@
+#!/bin/sh
+#MISE description="Test the qtr service and web console"
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+cd "$root/qtr"
+exec task test

@@ -1,0 +1,4 @@
+#!/bin/sh
+#MISE description="Build all Zettide components"
+#MISE depends=["build:grpc-lite", "build:raft-zig", "build:etz", "build:zettide", "build:qtr"]
+:

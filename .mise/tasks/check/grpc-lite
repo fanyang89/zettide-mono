@@ -1,0 +1,7 @@
+#!/bin/sh
+#MISE description="Check grpc-lite"
+#MISE hide=true
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+exec mise -C "$root/grpc-lite" run check

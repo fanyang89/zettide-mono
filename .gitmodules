@@ -19,10 +19,10 @@
 	url = https://github.com/fanyang89/zettide.git
 	branch = main
 [submodule "spdk"]
-	path = spdk
+	path = third_party/spdk
 	url = https://github.com/fanyang89/spdk.git
 	branch = master
 [submodule "EasyTier"]
-	path = EasyTier
+	path = references/EasyTier
 	url = https://github.com/EasyTier/EasyTier
 	branch = main

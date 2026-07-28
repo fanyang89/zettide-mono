@@ -1,0 +1,7 @@
+#!/bin/sh
+#MISE description="Fetch the workspace and all initialized submodules"
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+git -C "$root" fetch --all --prune
+git -C "$root" submodule foreach --recursive 'git fetch --all --prune'

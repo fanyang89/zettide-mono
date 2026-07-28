@@ -33,14 +33,18 @@ but the unified installation and cluster lifecycle are not production-ready.
 | [`raft-zig`](raft-zig/) | Consensus, membership, WAL, and replicated-state orchestration | Zig |
 | [`grpc-lite`](grpc-lite/) | Shared Zig runtime services and lightweight asynchronous RPC | Zig, nghttp2, libxev |
 
-This repository is the integration workspace. Each component remains an
+This repository is the integration workspace. Each owned component remains an
 independent Git submodule with its own release history and detailed
 documentation.
 
-[`EasyTier`](EasyTier/) and [`spdk`](spdk/) are pinned third-party source
-dependencies for the networking and Linux storage data planes. They are built
-or exercised by this workspace but are not independently released Zettide
-components.
+External repositories are separated by how the workspace uses them:
+
+- [`third_party/spdk`](third_party/spdk/) is a writable Zettide fork and a
+  managed build dependency for the Linux storage data plane.
+- [`references/EasyTier`](references/EasyTier/) pins the official upstream as
+  a read-only protocol and interoperability reference. It is not part of the
+  default bootstrap, build, test, or update tasks, and its initialization task
+  disables pushes on `origin`.
 
 `grpc-lite` is the foundational dependency for Zettide's Zig components.
 Reusable runtime facilities belong there rather than being reimplemented in
@@ -65,12 +69,12 @@ sudo dnf install \
 Install [mise](https://mise.jdx.dev/), then initialize the workspace:
 
 ```sh
-git clone --recurse-submodules <repository-url> Zettide
+git clone <repository-url> Zettide
 cd Zettide
-sudo PATH=/usr/bin:$PATH spdk/scripts/pkgdep.sh
 mise trust
 mise install
 mise run bootstrap
+sudo PATH=/usr/bin:$PATH third_party/spdk/scripts/pkgdep.sh
 ```
 
 `mise` pins Zig, Rust, Node.js, pnpm, CMake, Ninja, and Task. The bootstrap task
@@ -81,6 +85,13 @@ prefers `/usr/bin/python3` so its RPM-provided `tabulate` and `pyelftools`
 modules are available even when a user-local Python precedes it in `PATH`.
 See [`qtr/README.md`](qtr/README.md) for the complete Fedora virtualization
 runtime setup.
+
+Initialize the optional EasyTier reference only when working on protocol
+compatibility or interoperability tests:
+
+```sh
+mise run reference:easytier
+```
 
 ## Build And Test
 
@@ -118,15 +129,16 @@ mise run check
 mise tasks
 ```
 
-Update every submodule to the latest revision of its tracked branch and commit
-the resulting submodule pointers:
+Update owned components and managed dependencies to the latest revision of
+their tracked branches and commit the resulting submodule pointers:
 
 ```sh
 mise run update
 ```
 
 The update task creates a `chore: update submodules` commit only when at least
-one submodule revision changes. It does not stage unrelated workspace files.
+one managed revision changes. It neither updates the EasyTier reference nor
+stages unrelated workspace files.
 
 Privileged filesystem, network, and virtualization integration suites are not
 part of the default root test task. Their host setup and commands are documented

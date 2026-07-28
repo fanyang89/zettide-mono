@@ -1,0 +1,9 @@
+#!/bin/sh
+#MISE description="Check etz"
+#MISE hide=true
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+cd "$root/etz"
+zig fmt --check build.zig src
+zig build test --summary all

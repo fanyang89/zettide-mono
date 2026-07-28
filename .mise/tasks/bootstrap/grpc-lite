@@ -1,0 +1,8 @@
+#!/bin/sh
+#MISE description="Bootstrap grpc-lite dependencies"
+#MISE depends=["submodules"]
+#MISE hide=true
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+exec mise -C "$root/grpc-lite" run bootstrap

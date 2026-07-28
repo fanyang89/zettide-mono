@@ -1,0 +1,7 @@
+#!/bin/sh
+#MISE description="Check raft-zig"
+#MISE hide=true
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+exec mise -C "$root/raft-zig" run check

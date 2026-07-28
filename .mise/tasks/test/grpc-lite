@@ -1,0 +1,6 @@
+#!/bin/sh
+#MISE description="Test grpc-lite"
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+exec mise -C "$root/grpc-lite" run test

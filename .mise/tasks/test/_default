@@ -1,0 +1,4 @@
+#!/bin/sh
+#MISE description="Test all Zettide components"
+#MISE depends=["test:grpc-lite", "test:raft-zig", "test:etz", "test:zettide", "test:qtr"]
+:

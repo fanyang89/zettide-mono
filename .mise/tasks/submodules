@@ -1,0 +1,8 @@
+#!/bin/sh
+#MISE description="Initialize owned components and managed dependencies"
+#MISE hide=true
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+git -C "$root" submodule update --init --recursive -- \
+  grpc-lite raft-zig etz qtr zettide third_party/spdk

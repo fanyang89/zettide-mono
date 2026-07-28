@@ -1,0 +1,12 @@
+#!/bin/sh
+#MISE description="Check Zettide"
+#MISE depends=["build:spdk"]
+#MISE hide=true
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+cd "$root/zettide"
+zig fmt --check build.zig src test
+zig build ci --summary all
+PKG_CONFIG_PATH="$root/third_party/spdk/build/lib/pkgconfig" \
+  zig build test-spdk-link --summary all

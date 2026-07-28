@@ -1,0 +1,18 @@
+#!/bin/sh
+#MISE description="Build the shared SPDK libraries"
+#MISE depends=["submodule:spdk"]
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+cd "$root/third_party/spdk"
+options="--with-shared --disable-tests --disable-unit-tests --disable-examples --disable-apps --without-nvme-cuse --without-vhost --without-virtio --without-fsdev"
+build_path="$(pwd)/build"
+if ! grep -Fqx "# configure options: $options" mk/config.mk 2>/dev/null || \
+   ! grep -Fq "$build_path/include" build/lib/pkgconfig/spdk_event.pc 2>/dev/null || \
+   ! grep -Fq "$(pwd)/isa-l/.libs" build/lib/pkgconfig/spdk_syslibs.pc 2>/dev/null; then
+  if [ -f mk/config.mk ]; then
+    PATH=/usr/bin:$PATH make clean
+  fi
+  PATH=/usr/bin:$PATH ./configure $options
+fi
+PATH=/usr/bin:$PATH make -j"$(nproc)"

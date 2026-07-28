@@ -1,0 +1,4 @@
+#!/bin/sh
+#MISE description="Initialize submodules and project dependencies"
+#MISE depends=["bootstrap:grpc-lite", "bootstrap:qtr"]
+:

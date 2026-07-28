@@ -1,0 +1,10 @@
+#!/bin/sh
+#MISE description="Build Zettide and verify its SPDK link boundary"
+#MISE depends=["build:spdk"]
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+cd "$root/zettide"
+zig build -Doptimize=ReleaseFast
+PKG_CONFIG_PATH="$root/third_party/spdk/build/lib/pkgconfig" \
+  zig build test-spdk-link -Doptimize=ReleaseFast

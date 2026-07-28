@@ -1,0 +1,15 @@
+#!/bin/sh
+#MISE description="Update owned components and managed dependencies"
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+git -C "$root" submodule update --init --remote -- \
+  grpc-lite raft-zig etz qtr zettide third_party/spdk
+git -C "$root" submodule update --init --recursive -- \
+  grpc-lite raft-zig etz qtr zettide third_party/spdk
+git -C "$root" add grpc-lite raft-zig etz qtr zettide third_party/spdk
+if git -C "$root" diff --cached --quiet; then
+  printf '%s\n' "All submodules are already up to date"
+  exit 0
+fi
+git -C "$root" commit -m "chore: update submodules"

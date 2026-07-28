@@ -1,0 +1,7 @@
+#!/bin/sh
+#MISE description="Build grpc-lite in ReleaseFast mode"
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+cd "$root/grpc-lite"
+exec zig build -Doptimize=ReleaseFast

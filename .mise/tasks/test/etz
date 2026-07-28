@@ -1,0 +1,7 @@
+#!/bin/sh
+#MISE description="Test etz"
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+cd "$root/etz"
+exec zig build test --summary all

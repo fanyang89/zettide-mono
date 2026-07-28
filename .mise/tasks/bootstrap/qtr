@@ -1,0 +1,8 @@
+#!/bin/sh
+#MISE description="Install qtr web dependencies"
+#MISE depends=["submodules"]
+#MISE hide=true
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+exec pnpm -C "$root/qtr/web" install --frozen-lockfile
