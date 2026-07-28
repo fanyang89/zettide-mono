@@ -10,3 +10,5 @@ zig fmt --check build.zig src test
 zig build ci --summary all
 PKG_CONFIG_PATH="$root/third_party/spdk/build/lib/pkgconfig" \
   zig build test-spdk-link --summary all
+PKG_CONFIG_PATH="$root/third_party/spdk/build/lib/pkgconfig" \
+  zig build test-spdk-endpoint --summary all
