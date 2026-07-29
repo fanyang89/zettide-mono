@@ -1,6 +1,6 @@
 # 控制面
 
-> 状态：Pool daemon、Raft 复制与恢复当前存在；Volume、Node 和 reconciliation 为目标设计
+> 状态：Pool、durable Node registration、Raft 复制与恢复当前存在；Volume、heartbeat 和 reconciliation 为目标设计
 
 ## 总体结构
 
@@ -34,7 +34,7 @@ WAL 和 snapshot 是恢复介质，不是独立查询数据库。正常查询读
 | --- | --- | --- |
 | Pool | 创建、查询和枚举 Pool | 当前；Create/Get/List grpc-lite handler |
 | Volume | 生命周期、容量和保护策略 | 目标 |
-| Node | 持久注册、能力更新、隔离和注销 | 目标 |
+| Node | 持久注册、能力更新、隔离和注销 | 部分；Register/Get/List 当前存在，更新、隔离和注销为目标 |
 | Heartbeat | incarnation、容量、Replica 和路径观测 | 目标；leader-local |
 | Placement | Replica 目标、generation 和迁移状态 | 目标 |
 | Lease | Primary 授权、续期、撤销和 epoch | 目标 |
@@ -78,7 +78,7 @@ grpc-lite 不自动重试，但调用者遇到 deadline 或连接失败时无法
 - 相同 ID、相同 fingerprint 返回原结果。
 - 相同 ID、不同 fingerprint 返回 request conflict。
 
-当前 Pool 状态机已经实现这一模式，后续 Volume、Node 和 lease command 应沿用同一原则。
+当前 Pool 与 Node 状态机已经实现这一模式，并共享全局 request ID 域；同一 ID 跨资源类型重用也返回 request conflict。后续 Volume 和 lease command 应沿用同一原则。
 
 ## 线性一致读取
 
@@ -109,8 +109,10 @@ NodeRegistration 经 Raft 持久化，包含：
 - stable node ID 和 cluster ID。
 - control endpoint 与 NVMf endpoint。
 - failure domain。
-- 本地能力、介质类别和 RDMA/iWARP 能力。
-- 软件/格式兼容信息和管理状态。
+- capability bits。
+- protocol version。
+
+当前 RegisterNode 是 create-only 操作，已实现 Get/List 线性一致读取。能力更新、隔离、注销和管理状态尚未实现。
 
 Heartbeat 只保存在 leader 内存，包含 incarnation、容量、路径健康、Replica positions、lease 观测和 repair progress。地址或能力的权威变化不能由 heartbeat 静默覆盖 registration。
 
@@ -154,6 +156,7 @@ Reconciler 不直接修改状态机，而是执行以下循环：
 
 ## 当前差距
 
-- Volume、Node、Replica、placement 和 lease command 尚未定义。
+- Volume、Member、Replica、placement 和 lease command 尚未定义。
+- Node heartbeat、更新、隔离和注销尚未实现。
 - 没有 leader-local heartbeat store 和 reconciler。
 - 没有动态成员管理、认证授权、mTLS、健康检查和生产运维接口。

@@ -1,6 +1,6 @@
 # 领域模型
 
-> 状态：Pool 当前实现；其余为目标设计
+> 状态：Pool 与 durable NodeRegistration 当前实现；其余为目标设计
 
 ## 模型边界
 
@@ -144,6 +144,6 @@ stateDiagram-v2
 
 ## 当前实现与差距
 
-当前 `zettide-control` 只实现 Pool：ID、名称、描述、创建时间和创建 revision。`PoolStateMachine` 已有 ID/name 索引、request history、快照与恢复。
+当前 `zettide-control` 实现 Pool，以及 create-only 的 durable NodeRegistration。NodeRegistration 保存稳定 Node ID、cluster binding、control/NVMf endpoint、failure domain、capability bits、protocol version、注册时间和 revision；不保存 heartbeat、容量或在线状态。状态机已有 Pool ID/name 索引、Node ID 索引、Pool/Node 共享 request history、v3 快照与恢复，并兼容读取 v2 Pool-only 快照。
 
-Volume、Node、MemberRegistration、Replica、allocation、placement、lease、epoch 和 observed state 尚无 protobuf 或实现。当前 v3 Pool 的公共数据区只承载一个 Volume，尚无多 Volume extent allocator 和 durable local catalog；本章对这些实体的定义是后续协议和状态机扩展的约束。
+Volume、MemberRegistration、Replica、allocation、placement、lease、epoch 和 observed state 尚无 protobuf 或实现；Node heartbeat、更新、隔离和注销也尚未实现。当前 v3 Pool 的公共数据区只承载一个 Volume，尚无多 Volume extent allocator 和 durable local catalog；本章对这些实体的定义是后续协议和状态机扩展的约束。

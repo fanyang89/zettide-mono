@@ -18,11 +18,11 @@ Zettide 的目标是将复制元数据控制面与高性能存储数据面组合
 
 | 能力 | 状态 | 当前事实 | 目标 |
 | --- | --- | --- | --- |
-| Pool protobuf API | 当前 | 已定义 `CreatePool`、`GetPool`、`ListPools` | 增加运行服务、认证和运维接口 |
-| Pool 内存状态机 | 当前 | 支持确定性 apply、名称索引、请求幂等、快照与恢复 | 纳入完整控制面进程 |
-| 控制面 Raft | 部分 | `raft-zig` 已提供 Raftor、WAL、ReadIndex、快照和 grpc-lite transport | 在 `zettide-control` 装配并验证多节点服务 |
+| Pool protobuf API | 当前 | 已定义并运行 `CreatePool`、`GetPool`、`ListPools` | 增加认证和运维接口 |
+| Pool 内存状态机 | 当前 | 支持确定性 apply、名称索引、请求幂等、快照与恢复 | 扩展完整控制面元数据 |
+| 控制面 Raft | 当前 | 已装配 Raftor、持久 WAL、ReadIndex、快照和 grpc-lite transport，并验证多节点恢复 | 增加动态成员与生产运维能力 |
 | Volume 元数据 | 目标 | 尚无 protobuf 和状态机模型 | 管理容量、状态、副本和写入权威 |
-| Node 注册与心跳 | 目标 | 尚无数据节点控制协议 | 注册持久化，心跳由 leader 易失维护 |
+| Node 注册与心跳 | 部分 | durable Register/Get/List 已实现并经过 Raft 复制；尚无 heartbeat | heartbeat 由 leader 易失维护，并增加能力更新、隔离和注销 |
 | Placement 与 reconciliation | 目标 | 尚未实现 | 按故障域放置、修复和迁移副本 |
 | 本地容器和文件系统 | 当前 | littlefs、对象层、FUSE 和恢复路径已实现 | 作为本地前端和持久化基础 |
 | 本地 raw Pool | 当前 | 支持单盘和三个本地成员复制 | 接入跨节点资源模型 |
@@ -52,14 +52,18 @@ Zettide 的目标是将复制元数据控制面与高性能存储数据面组合
 - `PoolStateMachine` 的确定性命令 apply。
 - request ID 幂等与语义指纹冲突检测。
 - Pool ID/name 索引、容量上限和输入校验。
-- 状态快照、原子恢复和损坏快照拒绝。
+- durable Node 注册、ID 索引、cluster binding、容量上限和输入校验。
+- Pool/Node 共享 request ID 幂等域和跨类型冲突检测。
+- v3 状态快照、v2 兼容读取、原子恢复和损坏快照拒绝。
 - Create/Get/List Pool grpc-lite handler；写成功来自 committed apply，读取经过 ReadIndex。
+- Register/Get/List Node grpc-lite handler；写成功来自 committed apply，读取经过 ReadIndex。
 - 使用命令行配置的可运行 daemon、持久 WAL 和 grpc-lite Raft transport。
-- 单节点 snapshot/WAL 恢复与三 voter leader failover、restart 集成测试。
+- Pool/Node 单节点 snapshot/WAL 恢复与三 voter leader failover、restart 集成测试。
 
 当前不具备：
 
-- Volume、Node、Replica、heartbeat、placement、lease 和 reconciliation。
+- Volume、Member、Replica、heartbeat、placement、lease 和 reconciliation。
+- Node heartbeat、能力更新、隔离和注销。
 - 动态成员管理、认证授权、mTLS、健康检查和生产运维接口。
 
 ### zettide
