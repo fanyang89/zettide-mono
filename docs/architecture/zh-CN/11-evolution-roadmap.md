@@ -17,6 +17,8 @@
 - 写请求在 apply 后返回；Get/List 走 ReadIndex。
 - 验证三 voter、restart、snapshot 和 leader failover。
 
+当前状态：已完成。daemon 使用持久 WAL、静态 voter 配置和 grpc-lite Raft transport；集成测试覆盖 snapshot/WAL 恢复、三 voter restart 和 leader failover。
+
 ## 阶段 2：Node 与资源注册
 
 - 定义 durable Node/Member registration 和 leader-local heartbeat。

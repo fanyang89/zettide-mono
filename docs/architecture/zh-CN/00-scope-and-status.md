@@ -53,12 +53,14 @@ Zettide 的目标是将复制元数据控制面与高性能存储数据面组合
 - request ID 幂等与语义指纹冲突检测。
 - Pool ID/name 索引、容量上限和输入校验。
 - 状态快照、原子恢复和损坏快照拒绝。
+- Create/Get/List Pool grpc-lite handler；写成功来自 committed apply，读取经过 ReadIndex。
+- 使用命令行配置的可运行 daemon、持久 WAL 和 grpc-lite Raft transport。
+- 单节点 snapshot/WAL 恢复与三 voter leader failover、restart 集成测试。
 
 当前不具备：
 
-- 可运行的控制面 daemon 和 grpc-lite handler。
-- Raftor/WAL/transport 的产品级装配。
 - Volume、Node、Replica、heartbeat、placement、lease 和 reconciliation。
+- 动态成员管理、认证授权、mTLS、健康检查和生产运维接口。
 
 ### zettide
 

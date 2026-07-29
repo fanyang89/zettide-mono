@@ -1,6 +1,6 @@
 # 控制面
 
-> 状态：基础库和 Pool 状态机当前存在；服务装配与集群级模型为目标设计
+> 状态：Pool daemon、Raft 复制与恢复当前存在；Volume、Node 和 reconciliation 为目标设计
 
 ## 总体结构
 
@@ -32,7 +32,7 @@ WAL 和 snapshot 是恢复介质，不是独立查询数据库。正常查询读
 
 | API 组 | 职责 | 状态 |
 | --- | --- | --- |
-| Pool | 创建、查询和枚举 Pool | protobuf 已定义；handler 未实现 |
+| Pool | 创建、查询和枚举 Pool | 当前；Create/Get/List grpc-lite handler |
 | Volume | 生命周期、容量和保护策略 | 目标 |
 | Node | 持久注册、能力更新、隔离和注销 | 目标 |
 | Heartbeat | incarnation、容量、Replica 和路径观测 | 目标；leader-local |
@@ -154,8 +154,6 @@ Reconciler 不直接修改状态机，而是执行以下循环：
 
 ## 当前差距
 
-- 没有控制面 executable、配置、grpc-lite server 或 Pool handlers。
-- PoolStateMachine 尚未装配 Raftor、WAL 和 grpc-lite transport。
 - Volume、Node、Replica、placement 和 lease command 尚未定义。
 - 没有 leader-local heartbeat store 和 reconciler。
-- 没有 restart、leader failover 和端到端 ReadIndex 集成测试。
+- 没有动态成员管理、认证授权、mTLS、健康检查和生产运维接口。

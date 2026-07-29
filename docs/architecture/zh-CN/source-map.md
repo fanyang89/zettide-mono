@@ -18,10 +18,15 @@
 | --- | --- |
 | Pool RPC、command 和 snapshot protobuf | [`../../../zettide-control/proto/zettide/control/v1/control.proto`](../../../zettide-control/proto/zettide/control/v1/control.proto) |
 | Pool apply、幂等、snapshot/restore | [`../../../zettide-control/src/state_machine.zig`](../../../zettide-control/src/state_machine.zig) |
+| Pool grpc-lite handler 与 ReadIndex | [`../../../zettide-control/src/service.zig`](../../../zettide-control/src/service.zig) |
+| daemon 命令行配置 | [`../../../zettide-control/src/config.zig`](../../../zettide-control/src/config.zig) |
+| WAL、Raft transport 与服务生命周期装配 | [`../../../zettide-control/src/runtime.zig`](../../../zettide-control/src/runtime.zig) |
+| 进程和信号入口 | [`../../../zettide-control/src/main.zig`](../../../zettide-control/src/main.zig) |
+| restart、snapshot 与三 voter failover 测试 | [`../../../zettide-control/src/runtime_integration_test.zig`](../../../zettide-control/src/runtime_integration_test.zig) |
 | 模块入口 | [`../../../zettide-control/src/root.zig`](../../../zettide-control/src/root.zig) |
 | 构建与 protobuf codegen | [`../../../zettide-control/build.zig`](../../../zettide-control/build.zig) |
 
-当前没有 daemon、grpc-lite handler、Node/Volume/Replica 协议或 reconciliation 实现。
+当前没有 Node/Volume/Replica 协议、heartbeat 或 reconciliation 实现。
 
 ## raft-zig
 

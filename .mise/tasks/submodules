@@ -5,4 +5,4 @@ set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 git -C "$root" submodule update --init --recursive -- \
-  grpc-lite raft-zig etz qtr zettide third_party/spdk
+  grpc-lite raft-zig zettide-control etz qtr zettide third_party/spdk

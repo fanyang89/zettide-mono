@@ -1,0 +1,7 @@
+#!/bin/sh
+#MISE description="Build zettide-control in ReleaseFast mode"
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+cd "$root/zettide-control"
+exec zig build -Doptimize=ReleaseFast

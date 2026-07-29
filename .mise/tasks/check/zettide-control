@@ -1,0 +1,11 @@
+#!/bin/sh
+#MISE description="Check zettide-control"
+#MISE hide=true
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+cd "$root/zettide-control"
+zig fmt --check build.zig src
+zig build test --summary all
+zig build test -Doptimize=ReleaseSafe --summary all
+exec zig build -Doptimize=ReleaseFast
