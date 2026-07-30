@@ -23,6 +23,7 @@ Zettide 的目标是将复制元数据控制面与高性能存储数据面组合
 | 控制面 Raft | 当前 | 已装配 Raftor、持久 WAL、ReadIndex、快照和 grpc-lite transport，并验证多节点恢复 | 增加动态成员与生产运维能力 |
 | Volume 元数据 | 目标 | 尚无 protobuf 和状态机模型 | 管理容量、状态、副本和写入权威 |
 | Node 注册与心跳 | 部分 | durable Register/Get/List 已实现并经过 Raft 复制；尚无 heartbeat | heartbeat 由 leader 易失维护，并增加能力更新、隔离和注销 |
+| Member 注册 | 当前 | durable Register/Get/List 已实现；显式绑定控制面 Pool、Node 与本地 set | 增加生命周期和 observed report |
 | Placement 与 reconciliation | 目标 | 尚未实现 | 按故障域放置、修复和迁移副本 |
 | 本地容器和文件系统 | 当前 | littlefs、对象层、FUSE 和恢复路径已实现 | 作为本地前端和持久化基础 |
 | 本地 raw Pool | 当前 | 支持单盘和三个本地成员复制 | 接入跨节点资源模型 |
@@ -53,16 +54,19 @@ Zettide 的目标是将复制元数据控制面与高性能存储数据面组合
 - request ID 幂等与语义指纹冲突检测。
 - Pool ID/name 索引、容量上限和输入校验。
 - durable Node 注册、ID 索引、cluster binding、容量上限和输入校验。
-- Pool/Node 共享 request ID 幂等域和跨类型冲突检测。
-- v3 状态快照、v2 兼容读取、原子恢复和损坏快照拒绝。
+- durable Member 注册、本地 set/slot 唯一性、Pool/Node 绑定和不可变 allocation geometry。
+- Pool/Node/Member 共享 request ID 幂等域和跨类型冲突检测。
+- v4 状态快照、v2/v3 兼容读取、原子恢复和损坏快照拒绝。
 - Create/Get/List Pool grpc-lite handler；写成功来自 committed apply，读取经过 ReadIndex。
 - Register/Get/List Node grpc-lite handler；写成功来自 committed apply，读取经过 ReadIndex。
+- Register/Get/List Member grpc-lite handler；写成功来自 committed apply，读取经过 ReadIndex。
 - 使用命令行配置的可运行 daemon、持久 WAL 和 grpc-lite Raft transport。
-- Pool/Node 单节点 snapshot/WAL 恢复与三 voter leader failover、restart 集成测试。
+- Pool/Node/Member 单节点 snapshot/WAL 恢复与三 voter leader failover、restart 集成测试。
 
 当前不具备：
 
-- Volume、Member、Replica、heartbeat、placement、lease 和 reconciliation。
+- Volume、Replica、heartbeat、placement、lease 和 reconciliation。
+- Member lifecycle、当前 topology/authority、使用量和健康观测。
 - Node heartbeat、能力更新、隔离和注销。
 - 动态成员管理、认证授权、mTLS、健康检查和生产运维接口。
 

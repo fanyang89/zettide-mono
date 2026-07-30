@@ -1,6 +1,6 @@
 # 领域模型
 
-> 状态：Pool 与 durable NodeRegistration 当前实现；其余为目标设计
+> 状态：Pool、durable NodeRegistration 与 MemberRegistration 当前实现；其余为目标设计
 
 ## 模型边界
 
@@ -55,10 +55,11 @@ erDiagram
         string management_state
     }
     MEMBER {
-        uuid member_id
+        bytes member_id
+        bytes local_set_id
         uuid node_id
         uuid pool_id
-        string state
+        uint16 member_slot
     }
     REPLICA {
         uuid replica_id
@@ -144,6 +145,8 @@ stateDiagram-v2
 
 ## 当前实现与差距
 
-当前 `zettide-control` 实现 Pool，以及 create-only 的 durable NodeRegistration。NodeRegistration 保存稳定 Node ID、cluster binding、control/NVMf endpoint、failure domain、capability bits、protocol version、注册时间和 revision；不保存 heartbeat、容量或在线状态。状态机已有 Pool ID/name 索引、Node ID 索引、Pool/Node 共享 request history、v3 快照与恢复，并兼容读取 v2 Pool-only 快照。
+当前 `zettide-control` 实现 Pool，以及 create-only 的 durable NodeRegistration 和 MemberRegistration。NodeRegistration 保存稳定 Node ID、cluster binding、control/NVMf endpoint、failure domain、capability bits、protocol version、注册时间和 revision；不保存 heartbeat、容量或在线状态。
 
-Volume、MemberRegistration、Replica、allocation、placement、lease、epoch 和 observed state 尚无 protobuf 或实现；Node heartbeat、更新、隔离和注销也尚未实现。当前 v3 Pool 的公共数据区只承载一个 Volume，尚无多 Volume extent allocator 和 durable local catalog；本章对这些实体的定义是后续协议和状态机扩展的约束。
+MemberRegistration 使用介质原生 16-byte Member ID，绑定控制面 Pool、hosting Node 与 16-byte local set ID，并保存稳定 slot、birth topology digest、metadata/data capacity 和 extent size。Member ID 全局唯一；一个 local set 只绑定一个控制面 Pool；同一 local set 的 slot 不可冲突。设备路径、当前 topology/authority、使用量和健康不进入 registration。
+
+状态机使用 Pool/Node/Member 共享 request history、v4 快照与恢复，并兼容读取 v2 Pool-only 和 v3 Pool/Node 快照。Volume、Replica、allocation、placement、lease、epoch 和 observed state 尚无 protobuf 或实现；Node heartbeat、更新、隔离和注销以及 Member lifecycle/report 也尚未实现。当前 v3 Pool 的公共数据区只承载一个 Volume，尚无多 Volume extent allocator 和 durable local catalog。
