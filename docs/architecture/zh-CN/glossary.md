@@ -10,7 +10,7 @@
 
 向本地前端提供固定逻辑容量和块语义的存储资源。目标 Volume 属于一个 Pool，具有 Replica 集合、primary、lease 和 write epoch。
 
-当前 `zettide` 也使用 Volume 表示可挂载 littlefs 容器或建立在本地 Pool 上的文件系统实例；控制面尚无 Volume 模型。
+当前控制面 Volume 是 durable `PROVISIONING` metadata intent，支持 Create/Get 和无依赖条件下的 tombstone Delete；尚未接通 placement、数据面或前端。`zettide` 也使用 Volume 表示可挂载 littlefs 容器或建立在本地 Pool 上的文件系统实例。
 
 ## Node
 

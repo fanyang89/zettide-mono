@@ -40,6 +40,8 @@ Registration 持久化，heartbeat 易失。Leader 切换后 Node 无需创建�
 
 ## 创建 Volume
 
+当前实现仅覆盖下图中客户端请求、metadata intent 经 Raft apply，以及返回 `PROVISIONING` Volume 的部分。故障域选择、Allocation reservation、EnsureReplica、lease、fencing 和 `Available` 返回均仍是目标流程。
+
 ```mermaid
 sequenceDiagram
     participant U as Client

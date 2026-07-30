@@ -43,6 +43,8 @@
 - 实现创建、删除、tombstone、generation 和幂等 EnsureReplica。
 - 初期只支持三副本，不把 EC 枚举视为实现。
 
+当前状态：Volume durable protobuf、Create/Get/Delete RPC、固定 3/2/1 metadata intent、resource-version 条件删除、tombstone、request replay 和 v5 snapshot/recovery 已完成。ReplicaPlacement、ReplicaAllocation 与 VolumeAttachment schema 可被状态快照验证和保留，但 placement/allocator、child mutation、DataService 和 lifecycle reconciliation 尚未实现。
+
 ## 阶段 5：内部 NVMf Replica Protocol
 
 - 创建内部 Replica subsystem、namespace、listener 和 initiator connection。

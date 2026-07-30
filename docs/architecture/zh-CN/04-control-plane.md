@@ -79,7 +79,7 @@ grpc-lite 不自动重试，但调用者遇到 deadline 或连接失败时无法
 - 相同 ID、相同 fingerprint 返回原结果。
 - 相同 ID、不同 fingerprint 返回 request conflict。
 
-当前 Pool、Node 与 Member 状态机已经实现这一模式，并共享全局 request ID 域；同一 ID 跨资源类型重用也返回 request conflict。后续 Volume 和 lease command 应沿用同一原则。
+当前 Pool、Node、Member 与 Volume 状态机已经实现这一模式，并共享全局 request ID 域；同一 ID 跨资源类型重用也返回 request conflict。后续 placement 和 lease command 应沿用同一原则。
 
 ## 线性一致读取
 
@@ -114,6 +114,8 @@ NodeRegistration 经 Raft 持久化，包含：
 - protocol version。
 
 当前 RegisterNode 是 create-only 操作，已实现 Get/List 线性一致读取。能力更新、隔离、注销和管理状态尚未实现。
+
+当前 CreateVolume 只提交固定 3/2/1 策略的 `PROVISIONING` metadata intent。它不执行 placement、extent allocation、DataService RPC 或 attachment。GetVolume 经过 ReadIndex。DeleteVolume 使用 expected resource version，并只在没有 Replica/Attachment 引用时原子移除 live metadata、保留不淘汰的 durable tombstone；名称可以复用，ID 不复用。
 
 MemberRegistration 同样经 Raft 持久化，保存：
 
