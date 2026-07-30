@@ -26,7 +26,7 @@
 - DataService 恢复本地身份并报告 topology、capacity 和 authority。
 - 建立 desired/observed reconciliation 框架。
 
-当前状态：durable Node/Member protobuf、Raft 状态机和 Register/Get/List RPC 已完成；request ID 与 Pool 共享全局幂等域，集成测试覆盖 snapshot/WAL 恢复和 leader failover。Member registration 已绑定控制面 Pool/Node 与本地 set identity/geometry；leader-local heartbeat、Member lifecycle/report 和 reconciliation 尚未实现。
+当前状态：durable Node/Member protobuf、Raft 状态机和 Register/Get/List RPC 已完成；request ID 与 Pool 共享全局幂等域。Member registration 已绑定控制面 Pool/Node 与本地 set identity/geometry。Leader-local Report/Get heartbeat 已实现 Node incarnation/sequence、Member presence、可选 extent capacity、ordering/replay、stale 判定、有界 store 和切主清空；集成测试覆盖 snapshot/WAL 恢复、leader failover 与重新上报。DataService、本地 topology/authority report、Member lifecycle 和 reconciliation 尚未实现。
 
 ## 阶段 3：SPDK 本地数据路径
 

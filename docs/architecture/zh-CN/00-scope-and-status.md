@@ -22,7 +22,7 @@ Zettide 的目标是将复制元数据控制面与高性能存储数据面组合
 | Pool 内存状态机 | 当前 | 支持确定性 apply、名称索引、请求幂等、快照与恢复 | 扩展完整控制面元数据 |
 | 控制面 Raft | 当前 | 已装配 Raftor、持久 WAL、ReadIndex、快照和 grpc-lite transport，并验证多节点恢复 | 增加动态成员与生产运维能力 |
 | Volume 元数据 | 目标 | 尚无 protobuf 和状态机模型 | 管理容量、状态、副本和写入权威 |
-| Node 注册与心跳 | 部分 | durable Register/Get/List 已实现并经过 Raft 复制；尚无 heartbeat | heartbeat 由 leader 易失维护，并增加能力更新、隔离和注销 |
+| Node 注册与心跳 | 部分 | durable Register/Get/List 已实现并经过 Raft 复制；leader-local Report/Get heartbeat 已实现 Node incarnation/sequence、Member presence 和可选 extent capacity | 增加能力更新、隔离、注销、路径和 Replica 观测 |
 | Member 注册 | 当前 | durable Register/Get/List 已实现；显式绑定控制面 Pool、Node 与本地 set | 增加生命周期和 observed report |
 | Placement 与 reconciliation | 目标 | 尚未实现 | 按故障域放置、修复和迁移副本 |
 | 本地容器和文件系统 | 当前 | littlefs、对象层、FUSE 和恢复路径已实现 | 作为本地前端和持久化基础 |
@@ -60,14 +60,17 @@ Zettide 的目标是将复制元数据控制面与高性能存储数据面组合
 - Create/Get/List Pool grpc-lite handler；写成功来自 committed apply，读取经过 ReadIndex。
 - Register/Get/List Node grpc-lite handler；写成功来自 committed apply，读取经过 ReadIndex。
 - Register/Get/List Member grpc-lite handler；写成功来自 committed apply，读取经过 ReadIndex。
+- Report/Get Heartbeat grpc-lite handler；durable binding 校验和易失 observation 访问在 ReadIndex callback 中串行执行。
+- leader-local heartbeat store；限制 10,000 Nodes、10,000 Member observations 和每次 256 Members，推荐 1 秒上报，5 秒后 stale。
+- Heartbeat 不进入 WAL/snapshot；leader 切换、任期变化或 snapshot restore 后清空并要求重新上报。
 - 使用命令行配置的可运行 daemon、持久 WAL 和 grpc-lite Raft transport。
-- Pool/Node/Member 单节点 snapshot/WAL 恢复与三 voter leader failover、restart 集成测试。
+- Pool/Node/Member 单节点 snapshot/WAL 恢复与三 voter leader failover、restart 集成测试，包括 heartbeat 清空和重新上报。
 
 当前不具备：
 
-- Volume、Replica、heartbeat、placement、lease 和 reconciliation。
-- Member lifecycle、当前 topology/authority、使用量和健康观测。
-- Node heartbeat、能力更新、隔离和注销。
+- Volume、Replica、placement、lease 和 reconciliation。
+- Member lifecycle、当前 topology/authority、路径、Replica 和健康观测。
+- Node 能力更新、隔离和注销。
 - 动态成员管理、认证授权、mTLS、健康检查和生产运维接口。
 
 ### zettide

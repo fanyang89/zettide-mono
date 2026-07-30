@@ -16,9 +16,10 @@
 
 | 主题 | 文件 |
 | --- | --- |
-| Pool RPC、command 和 snapshot protobuf | [`../../../zettide-control/proto/zettide/control/v1/control.proto`](../../../zettide-control/proto/zettide/control/v1/control.proto) |
-| Pool apply、幂等、snapshot/restore | [`../../../zettide-control/src/state_machine.zig`](../../../zettide-control/src/state_machine.zig) |
-| Pool grpc-lite handler 与 ReadIndex | [`../../../zettide-control/src/service.zig`](../../../zettide-control/src/service.zig) |
+| Pool/Node/Member/Heartbeat protobuf | [`../../../zettide-control/proto/zettide/control/v1/control.proto`](../../../zettide-control/proto/zettide/control/v1/control.proto) |
+| Pool/Node/Member apply、幂等、snapshot/restore 与 heartbeat binding | [`../../../zettide-control/src/state_machine.zig`](../../../zettide-control/src/state_machine.zig) |
+| leader-local heartbeat store | [`../../../zettide-control/src/heartbeat.zig`](../../../zettide-control/src/heartbeat.zig) |
+| Pool/Node/Member/Heartbeat grpc-lite handler 与 ReadIndex | [`../../../zettide-control/src/service.zig`](../../../zettide-control/src/service.zig) |
 | daemon 命令行配置 | [`../../../zettide-control/src/config.zig`](../../../zettide-control/src/config.zig) |
 | WAL、Raft transport 与服务生命周期装配 | [`../../../zettide-control/src/runtime.zig`](../../../zettide-control/src/runtime.zig) |
 | 进程和信号入口 | [`../../../zettide-control/src/main.zig`](../../../zettide-control/src/main.zig) |
@@ -26,7 +27,7 @@
 | 模块入口 | [`../../../zettide-control/src/root.zig`](../../../zettide-control/src/root.zig) |
 | 构建与 protobuf codegen | [`../../../zettide-control/build.zig`](../../../zettide-control/build.zig) |
 
-当前没有 Node/Volume/Replica 协议、heartbeat 或 reconciliation 实现。
+当前已有 durable Node/Member registration 和 leader-local heartbeat 首个切片；尚无 Volume/Replica 协议或 reconciliation 实现。
 
 ## raft-zig
 
@@ -92,7 +93,7 @@
 
 ## 尚无实现的目标能力
 
-- Node registration、heartbeat 和 DataService。
+- DataService、Node registration 客户端和扩展 heartbeat report。
 - Volume/Replica 控制面元数据。
 - ReplicaAllocation、extent allocator 和 durable local catalog。
 - Placement、lease 和 Volume write epoch。

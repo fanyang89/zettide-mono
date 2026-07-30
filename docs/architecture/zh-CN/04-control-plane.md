@@ -1,6 +1,6 @@
 # 控制面
 
-> 状态：Pool、durable Node/Member registration、Raft 复制与恢复当前存在；Volume、heartbeat 和 reconciliation 为目标设计
+> 状态：Pool、durable Node/Member registration、leader-local heartbeat、Raft 复制与恢复当前存在；Volume 和 reconciliation 为目标设计
 
 ## 总体结构
 
@@ -36,7 +36,7 @@ WAL 和 snapshot 是恢复介质，不是独立查询数据库。正常查询读
 | Volume | 生命周期、容量和保护策略 | 目标 |
 | Node | 持久注册、能力更新、隔离和注销 | 部分；Register/Get/List 当前存在，更新、隔离和注销为目标 |
 | Member | 本地持久单元与控制面 Pool/Node 的绑定 | 当前；create-only Register/Get/List |
-| Heartbeat | incarnation、容量、Replica 和路径观测 | 目标；leader-local |
+| Heartbeat | incarnation、Member presence 与可选 extent capacity | 当前；leader-local Report/Get，Replica 和路径观测为目标 |
 | Placement | Replica 目标、generation 和迁移状态 | 目标 |
 | Lease | Primary 授权、续期、撤销和 epoch | 目标 |
 | Reconciliation | 下发幂等动作、报告结果与错误 | 目标 |
@@ -124,9 +124,11 @@ MemberRegistration 同样经 Raft 持久化，保存：
 
 当前 RegisterMember 是 create-only 操作，已实现 Get/List 线性一致读取。设备路径、当前 topology/authority、使用量和健康属于 observed report，不由 registration 静默更新。
 
-Heartbeat 只保存在 leader 内存，包含 incarnation、容量、路径健康、Replica positions、lease 观测和 repair progress。地址或能力的权威变化不能由 heartbeat 静默覆盖 registration。
+当前 Heartbeat 只保存在 leader 内存，包含 Node incarnation/sequence、接受时间、leader term、Member presence 和可选 extent capacity。Report 先通过 ReadIndex，在 Raft driver callback 中校验 Node/Member registration binding、容量 geometry 和当前任期，再原子替换 observation；Get 同样通过 ReadIndex。地址或能力的权威变化不能由 heartbeat 静默覆盖 registration。
 
-这种分离避免高频 heartbeat 放大 Raft 日志。Leader 切换后 DataService 必须重新上报。
+同一 incarnation/sequence 且语义相同的请求返回首次接受结果；相同 tuple 不同 payload 或 ordering 回退返回冲突。推荐上报间隔为 1 秒，5 秒后标记 stale。Store 限制 10,000 Nodes、10,000 Member observations 和每次 256 Members。
+
+这种分离避免高频 heartbeat 放大 Raft 日志。Observation 不进入 WAL 或 snapshot，并在 leader/term 变化及 snapshot restore 后清空；DataService 必须重新上报。路径健康、Replica positions、lease 观测和 repair progress 尚未进入当前协议。
 
 ## Reconciliation
 
@@ -143,7 +145,7 @@ Reconciler 不直接修改状态机，而是执行以下循环：
 
 ## 线程与背压
 
-- grpc-lite callback 只解码、基础校验和有界入队，不执行阻塞 WAL 或介质操作。
+- grpc-lite callback 只解码、基础校验和有界入队；heartbeat durable binding 校验、store 访问和响应编码在 ReadIndex callback 中执行。
 - Raftor event loop 由单一 driver 驱动，不并发重入。
 - State machine apply 按日志顺序串行。
 - Proposal、ReadIndex、heartbeat 和 action queue 都设置数量/字节上限。
@@ -167,7 +169,7 @@ Reconciler 不直接修改状态机，而是执行以下循环：
 ## 当前差距
 
 - Volume、Replica、placement 和 lease command 尚未定义。
-- Member lifecycle 与 observed report 尚未实现。
-- Node heartbeat、更新、隔离和注销尚未实现。
-- 没有 leader-local heartbeat store 和 reconciler。
+- Member lifecycle、路径健康和 Replica observed report 尚未实现。
+- Node 更新、隔离和注销尚未实现。
+- 没有 reconciler。
 - 没有动态成员管理、认证授权、mTLS、健康检查和生产运维接口。

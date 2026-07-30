@@ -1,6 +1,6 @@
 # 领域模型
 
-> 状态：Pool、durable NodeRegistration 与 MemberRegistration 当前实现；其余为目标设计
+> 状态：Pool、durable NodeRegistration/MemberRegistration 与 leader-local NodeObservation 首个切片当前实现；其余为目标设计
 
 ## 模型边界
 
@@ -149,4 +149,6 @@ stateDiagram-v2
 
 MemberRegistration 使用介质原生 16-byte Member ID，绑定控制面 Pool、hosting Node 与 16-byte local set ID，并保存稳定 slot、birth topology digest、metadata/data capacity 和 extent size。Member ID 全局唯一；一个 local set 只绑定一个控制面 Pool；同一 local set 的 slot 不可冲突。设备路径、当前 topology/authority、使用量和健康不进入 registration。
 
-状态机使用 Pool/Node/Member 共享 request history、v4 快照与恢复，并兼容读取 v2 Pool-only 和 v3 Pool/Node 快照。Volume、Replica、allocation、placement、lease、epoch 和 observed state 尚无 protobuf 或实现；Node heartbeat、更新、隔离和注销以及 Member lifecycle/report 也尚未实现。当前 v3 Pool 的公共数据区只承载一个 Volume，尚无多 Volume extent allocator 和 durable local catalog。
+状态机使用 Pool/Node/Member 共享 request history、v4 快照与恢复，并兼容读取 v2 Pool-only 和 v3 Pool/Node 快照。当前 NodeObservation 只包含 Node incarnation/sequence、接受时间、leader term、Member presence 和可选 extent capacity；相同 ordering tuple 的相同语义可重放，不同语义或回退会冲突。Observation 只存在于当前 leader 内存，5 秒后 stale，leader 切换或恢复 snapshot 时清空，不覆盖 registration，也不进入 WAL/snapshot。
+
+Volume、Replica、allocation、placement、lease、epoch、路径健康、Replica positions 和 repair progress 尚无实现；Node 更新、隔离和注销以及 Member lifecycle 也尚未实现。当前 v3 Pool 的公共数据区只承载一个 Volume，尚无多 Volume extent allocator 和 durable local catalog。
