@@ -11,9 +11,12 @@ pub const max_statements: usize = 32;
 pub const max_parameters: usize = 1024;
 pub const max_query_rows: usize = 1000;
 pub const max_query_bytes: usize = 4 * 1024 * 1024;
+pub const max_api_response_bytes: usize = 8 * 1024 * 1024;
 pub const idempotency_window_entries: u64 = 10_000;
 
 const page_size: usize = 4096;
+const progress_interval = 1000;
+const max_progress_callbacks = 10_000;
 const snapshot_magic = "RSQL";
 const snapshot_version: u32 = 1;
 const snapshot_header_bytes = 4 + 4 + 8 + std.crypto.hash.sha2.Sha256.digest_length;
@@ -23,6 +26,8 @@ pub const Error = error{
     OpenFailed,
     SqliteFailure,
     InvalidRequest,
+    QueryLimitExceeded,
+    ResultTooLarge,
     InvalidSnapshot,
     SnapshotTooLarge,
 };
@@ -195,7 +200,7 @@ pub const Database = struct {
             try self.execInternal("ROLLBACK TO user_sql");
             try self.execInternal("RELEASE user_sql");
             response.results.clearRetainingCapacity();
-            response.code = if (failure.code == c.SQLITE_FULL or failure.code == c.SQLITE_TOOBIG)
+            response.code = if (failure.code == c.SQLITE_FULL or failure.code == c.SQLITE_TOOBIG or failure.code == c.SQLITE_INTERRUPT)
                 .EXECUTE_CODE_RESOURCE_EXHAUSTED
             else
                 .EXECUTE_CODE_SQL_ERROR;
@@ -274,6 +279,9 @@ pub const Database = struct {
         }
 
         self.authorizer_mode.* = .read;
+        var budget: ProgressBudget = .{};
+        c.sqlite3_progress_handler(self.db, progress_interval, checkProgress, &budget);
+        defer c.sqlite3_progress_handler(self.db, 0, null, null);
         var statement: ?*c.sqlite3_stmt = null;
         var tail: [*c]const u8 = null;
         const prepare_rc = c.sqlite3_prepare_v3(
@@ -284,6 +292,7 @@ pub const Database = struct {
             &statement,
             &tail,
         );
+        if (prepare_rc == c.SQLITE_INTERRUPT) return error.QueryLimitExceeded;
         if (prepare_rc != c.SQLITE_OK or statement == null) return error.InvalidRequest;
         defer _ = c.sqlite3_finalize(statement.?);
         if (!tailIsEmpty(request.sql, tail) or c.sqlite3_stmt_readonly(statement.?) == 0) return error.InvalidRequest;
@@ -306,8 +315,9 @@ pub const Database = struct {
         while (true) {
             const rc = c.sqlite3_step(statement.?);
             if (rc == c.SQLITE_DONE) break;
+            if (rc == c.SQLITE_INTERRUPT) return error.QueryLimitExceeded;
             if (rc != c.SQLITE_ROW) return error.SqliteFailure;
-            if (response.rows.items.len >= max_query_rows) return error.InvalidRequest;
+            if (response.rows.items.len >= max_query_rows) return error.ResultTooLarge;
             var row: pb.Row = .{};
             errdefer row.deinit(allocator);
             for (0..column_count) |index| {
@@ -381,11 +391,17 @@ pub const Database = struct {
     }
 
     pub fn serializedSize(self: *Database) Error!u64 {
-        var size: c.sqlite3_int64 = 0;
-        const ptr = c.sqlite3_serialize(self.db, "main", &size, c.SQLITE_SERIALIZE_NOCOPY);
-        if (ptr != null) return @intCast(size);
-        if (size < 0) return error.SqliteFailure;
-        return @intCast(size);
+        self.authorizer_mode.* = .internal;
+        const count_statement = try self.prepareInternal("PRAGMA page_count");
+        defer _ = c.sqlite3_finalize(count_statement);
+        if (c.sqlite3_step(count_statement) != c.SQLITE_ROW) return error.SqliteFailure;
+        const pages = c.sqlite3_column_int64(count_statement, 0);
+        const size_statement = try self.prepareInternal("PRAGMA page_size");
+        defer _ = c.sqlite3_finalize(size_statement);
+        if (c.sqlite3_step(size_statement) != c.SQLITE_ROW) return error.SqliteFailure;
+        const bytes_per_page = c.sqlite3_column_int64(size_statement, 0);
+        if (pages < 0 or bytes_per_page < 0) return error.SqliteFailure;
+        return std.math.mul(u64, @intCast(pages), @intCast(bytes_per_page)) catch error.SqliteFailure;
     }
 
     pub fn appliedIndex(self: *Database) Error!u64 {
@@ -407,6 +423,9 @@ pub const Database = struct {
 
     fn executeStatement(self: *Database, allocator: std.mem.Allocator, input: pb.Statement) Error!StatementOutcome {
         self.authorizer_mode.* = .write;
+        var budget: ProgressBudget = .{};
+        c.sqlite3_progress_handler(self.db, progress_interval, checkProgress, &budget);
+        defer c.sqlite3_progress_handler(self.db, 0, null, null);
         var statement: ?*c.sqlite3_stmt = null;
         var tail: [*c]const u8 = null;
         const prepare_rc = c.sqlite3_prepare_v3(
@@ -574,16 +593,16 @@ fn columnValue(
         c.SQLITE_FLOAT => .{ .kind = .{ .real_value = c.sqlite3_column_double(statement, index) } },
         c.SQLITE_TEXT => blk: {
             const len: usize = @intCast(c.sqlite3_column_bytes(statement, index));
-            result_bytes.* = std.math.add(usize, result_bytes.*, len) catch return error.InvalidRequest;
-            if (result_bytes.* > max_query_bytes) return error.InvalidRequest;
+            result_bytes.* = std.math.add(usize, result_bytes.*, len) catch return error.ResultTooLarge;
+            if (result_bytes.* > max_query_bytes) return error.ResultTooLarge;
             const source = c.sqlite3_column_text(statement, index);
             const copy = allocator.dupe(u8, source[0..len]) catch return error.OutOfMemory;
             break :blk .{ .kind = .{ .text_value = copy } };
         },
         c.SQLITE_BLOB => blk: {
             const len: usize = @intCast(c.sqlite3_column_bytes(statement, index));
-            result_bytes.* = std.math.add(usize, result_bytes.*, len) catch return error.InvalidRequest;
-            if (result_bytes.* > max_query_bytes) return error.InvalidRequest;
+            result_bytes.* = std.math.add(usize, result_bytes.*, len) catch return error.ResultTooLarge;
+            if (result_bytes.* > max_query_bytes) return error.ResultTooLarge;
             const source = c.sqlite3_column_blob(statement, index);
             const bytes: [*]const u8 = @ptrCast(source);
             const copy = allocator.dupe(u8, bytes[0..len]) catch return error.OutOfMemory;
@@ -601,6 +620,16 @@ fn tailIsEmpty(sql: []const u8, tail: [*c]const u8) bool {
         if (!std.ascii.isWhitespace(byte) and byte != ';') return false;
     }
     return true;
+}
+
+const ProgressBudget = struct {
+    callbacks_remaining: usize = max_progress_callbacks,
+};
+
+fn checkProgress(context: ?*anyopaque) callconv(.c) c_int {
+    const budget: *ProgressBudget = @ptrCast(@alignCast(context.?));
+    budget.callbacks_remaining -= 1;
+    return @intFromBool(budget.callbacks_remaining == 0);
 }
 
 fn copyColumnBlob(allocator: std.mem.Allocator, statement: *c.sqlite3_stmt, index: c_int) Error![]u8 {
@@ -698,6 +727,7 @@ test "database applies an atomic parameterized batch and queries it" {
 
     var database = try Database.init(allocator);
     defer database.deinit();
+    try std.testing.expect(try database.serializedSize() > 0);
     var request: pb.ExecuteRequest = .{ .request_id = "request-1" };
     try request.statements.append(scratch, .{ .sql = "CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT NOT NULL) STRICT" });
     var insert: pb.Statement = .{ .sql = "INSERT INTO items(id, name) VALUES (?1, ?2)" };
@@ -749,6 +779,14 @@ test "database rolls back a batch that uses a nondeterministic function" {
     var query_response = try database.query(allocator, .{ .sql = "SELECT count(*) FROM items" });
     defer query_response.deinit(allocator);
     try std.testing.expectEqual(@as(i64, 0), query_response.rows.items[0].values.items[0].kind.?.integer_value);
+}
+
+test "database interrupts queries that exceed the execution budget" {
+    var database = try Database.init(std.testing.allocator);
+    defer database.deinit();
+    try std.testing.expectError(error.QueryLimitExceeded, database.query(std.testing.allocator, .{
+        .sql = "WITH RECURSIVE values_table(value) AS (VALUES(0) UNION ALL SELECT value + 1 FROM values_table) SELECT max(value) FROM values_table",
+    }));
 }
 
 test "database deduplicates requests and atomically restores snapshots" {

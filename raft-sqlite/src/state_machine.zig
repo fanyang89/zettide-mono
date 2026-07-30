@@ -11,6 +11,7 @@ pub const max_snapshot_bytes: usize = sqlite.max_database_bytes + 64;
 pub const SqliteStateMachine = struct {
     allocator: std.mem.Allocator,
     database: sqlite.Database,
+    mutex: std.atomic.Mutex = .unlocked,
 
     pub fn init(allocator: std.mem.Allocator) !SqliteStateMachine {
         return .{
@@ -29,19 +30,27 @@ pub const SqliteStateMachine = struct {
     }
 
     pub fn query(self: *SqliteStateMachine, allocator: std.mem.Allocator, request: pb.QueryRequest) sqlite.Error!pb.QueryResponse {
+        lock(&self.mutex);
+        defer self.mutex.unlock();
         return self.database.query(allocator, request);
     }
 
     pub fn appliedIndex(self: *SqliteStateMachine) sqlite.Error!u64 {
+        lock(&self.mutex);
+        defer self.mutex.unlock();
         return self.database.appliedIndex();
     }
 
     pub fn databaseBytes(self: *SqliteStateMachine) sqlite.Error!u64 {
+        lock(&self.mutex);
+        defer self.mutex.unlock();
         return self.database.serializedSize();
     }
 
     fn applyImpl(context: *anyopaque, entry: raft.Entry) raft.Error!raft.ApplyResult {
         const self: *SqliteStateMachine = @ptrCast(@alignCast(context));
+        lock(&self.mutex);
+        defer self.mutex.unlock();
         if (entry.data.len == 0) {
             self.database.advance(entry.index) catch |err| return mapSqliteError(err);
             return .{};
@@ -77,6 +86,8 @@ pub const SqliteStateMachine = struct {
         conf_state: raft.ConfState,
     ) raft.Error!raft.Snapshot {
         const self: *SqliteStateMachine = @ptrCast(@alignCast(context));
+        lock(&self.mutex);
+        defer self.mutex.unlock();
         const data = self.database.takeSnapshot(allocator, applied_index) catch |err| return mapSqliteError(err);
         errdefer allocator.free(data);
         return .{
@@ -104,6 +115,8 @@ pub const SqliteStateMachine = struct {
             if (data.items.len > max_snapshot_bytes -| count) return error.Fatal;
             data.appendSlice(self.allocator, buffer[0..count]) catch return error.OutOfMemory;
         }
+        lock(&self.mutex);
+        defer self.mutex.unlock();
         self.database.restore(metadata.index, data.items) catch |err| return mapSqliteError(err);
     }
 
@@ -137,6 +150,10 @@ fn mapSqliteError(err: sqlite.Error) raft.Error {
         error.OutOfMemory => error.OutOfMemory,
         else => error.Fatal,
     };
+}
+
+fn lock(mutex: *std.atomic.Mutex) void {
+    while (!mutex.tryLock()) std.atomic.spinLoopHint();
 }
 
 const SliceSnapshotReader = struct {

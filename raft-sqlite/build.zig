@@ -12,6 +12,15 @@ pub fn build(b: *std.Build) void {
     const grpc_dependency = raft_build.grpcLiteDependency(raft_dependency, target, optimize);
     const grpc_module = grpc_dependency.module("grpc_lite");
     const protobuf_module = grpc_module.import_table.get("protobuf").?;
+    const grpc_protobuf_module = b.createModule(.{
+        .root_source_file = grpc_dependency.path("src/protobuf_adapter.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "grpc_lite", .module = grpc_module },
+            .{ .name = "protobuf", .module = protobuf_module },
+        },
+    });
 
     const generate_proto = raft_build.createProtocStep(raft_dependency, target, optimize, .{
         .destination_directory = b.path(".zig-cache/generated"),
@@ -57,6 +66,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "database_proto", .module = database_proto },
             .{ .name = "grpc_lite", .module = grpc_module },
+            .{ .name = "grpc_lite_protobuf", .module = grpc_protobuf_module },
             .{ .name = "raft_zig", .module = raft_dependency.module("raft_zig") },
             .{ .name = "sqlite_c", .module = sqlite_c },
         },
