@@ -15,4 +15,6 @@ PKG_CONFIG_PATH="$root/third_party/spdk/build/lib/pkgconfig" \
 PKG_CONFIG_PATH="$root/third_party/spdk/build/lib/pkgconfig" \
   zig build test-spdk-dispatcher --summary all
 PKG_CONFIG_PATH="$root/third_party/spdk/build/lib/pkgconfig" \
+  zig build test-spdk-provider --summary all
+PKG_CONFIG_PATH="$root/third_party/spdk/build/lib/pkgconfig" \
   zig build test-spdk-storage --summary all
