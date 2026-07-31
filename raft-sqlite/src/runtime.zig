@@ -47,8 +47,15 @@ pub const Runtime = struct {
         self.driver_failed = .init(false);
         self.running = false;
 
-        self.machine = try state_machine.SqliteStateMachine.init(allocator);
+        const data_dir = try std.fmt.allocPrintSentinel(allocator, "{s}", .{config.data_dir}, 0);
+        defer allocator.free(data_dir);
+        const fs = raft.realFileSystem();
+        _ = try fs.makeDir(data_dir);
+        const database_path = try std.fmt.allocPrintSentinel(allocator, "{s}/state.sqlite3", .{config.data_dir}, 0);
+        defer allocator.free(database_path);
+        self.machine = try state_machine.SqliteStateMachine.initFile(allocator, database_path, config.cluster_id);
         errdefer self.machine.deinit();
+        try fs.syncDir(data_dir);
 
         const max_transport_message = state_machine.max_snapshot_bytes + 1024 * 1024;
         const stream_buffer_bytes = max_transport_message + 5;

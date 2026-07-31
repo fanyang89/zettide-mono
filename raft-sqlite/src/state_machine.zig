@@ -20,13 +20,27 @@ pub const SqliteStateMachine = struct {
         };
     }
 
+    pub fn initFile(
+        allocator: std.mem.Allocator,
+        path: [:0]const u8,
+        cluster_id: sqlite.ClusterId,
+    ) !SqliteStateMachine {
+        return .{
+            .allocator = allocator,
+            .database = try sqlite.Database.openFile(allocator, path, cluster_id),
+        };
+    }
+
     pub fn deinit(self: *SqliteStateMachine) void {
         self.database.deinit();
         self.* = undefined;
     }
 
     pub fn stateMachine(self: *SqliteStateMachine) raft.StateMachine {
-        return .{ .ctx = self, .vtable = &vtable };
+        return .{
+            .ctx = self,
+            .vtable = if (self.database.persistent) &durable_vtable else &volatile_vtable,
+        };
     }
 
     pub fn query(self: *SqliteStateMachine, allocator: std.mem.Allocator, request: pb.QueryRequest) sqlite.Error!pb.QueryResponse {
@@ -52,7 +66,7 @@ pub const SqliteStateMachine = struct {
         lock(&self.mutex);
         defer self.mutex.unlock();
         if (entry.data.len == 0) {
-            self.database.advance(entry.index) catch |err| return mapSqliteError(err);
+            self.database.advance(entry.index, entry.term) catch |err| return mapSqliteError(err);
             return .{};
         }
         if (entry.data.len > max_command_bytes) return error.Fatal;
@@ -72,7 +86,7 @@ pub const SqliteStateMachine = struct {
         const request = envelope.execute orelse return error.Fatal;
         var request_hash: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
         std.crypto.hash.sha2.Sha256.hash(entry.data, &request_hash, .{});
-        const response = self.database.apply(self.allocator, request, request_hash, entry.index) catch |err| {
+        const response = self.database.apply(self.allocator, request, request_hash, entry.index, entry.term) catch |err| {
             return mapSqliteError(err);
         };
         return .{ .response = response };
@@ -88,7 +102,7 @@ pub const SqliteStateMachine = struct {
         const self: *SqliteStateMachine = @ptrCast(@alignCast(context));
         lock(&self.mutex);
         defer self.mutex.unlock();
-        const data = self.database.takeSnapshot(allocator, applied_index) catch |err| return mapSqliteError(err);
+        const data = self.database.takeSnapshot(allocator, applied_index, applied_term) catch |err| return mapSqliteError(err);
         errdefer allocator.free(data);
         return .{
             .data = data,
@@ -117,13 +131,28 @@ pub const SqliteStateMachine = struct {
         }
         lock(&self.mutex);
         defer self.mutex.unlock();
-        self.database.restore(metadata.index, data.items) catch |err| return mapSqliteError(err);
+        self.database.restore(metadata.index, metadata.term, data.items) catch |err| return mapSqliteError(err);
     }
 
-    const vtable: raft.StateMachine.VTable = .{
+    fn durableAppliedImpl(context: *anyopaque) raft.Error!raft.DurableApplied {
+        const self: *SqliteStateMachine = @ptrCast(@alignCast(context));
+        lock(&self.mutex);
+        defer self.mutex.unlock();
+        const position = self.database.appliedPosition() catch |err| return mapSqliteError(err);
+        return .{ .index = position.index, .term = position.term };
+    }
+
+    const volatile_vtable: raft.StateMachine.VTable = .{
         .apply = applyImpl,
         .take_snapshot = takeSnapshotImpl,
         .restore_snapshot = restoreSnapshotImpl,
+    };
+
+    const durable_vtable: raft.StateMachine.VTable = .{
+        .apply = applyImpl,
+        .take_snapshot = takeSnapshotImpl,
+        .restore_snapshot = restoreSnapshotImpl,
+        .durable_applied = durableAppliedImpl,
     };
 };
 

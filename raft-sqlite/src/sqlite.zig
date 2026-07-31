@@ -15,11 +15,20 @@ pub const max_api_response_bytes: usize = 8 * 1024 * 1024;
 pub const idempotency_window_entries: u64 = 10_000;
 
 const page_size: usize = 4096;
+const schema_version: u32 = 2;
 const progress_interval = 1000;
 const max_progress_callbacks = 10_000;
 const snapshot_magic = "RSQL";
-const snapshot_version: u32 = 1;
+const snapshot_version: u32 = 2;
+const legacy_snapshot_version: u32 = 1;
 const snapshot_header_bytes = 4 + 4 + 8 + std.crypto.hash.sha2.Sha256.digest_length;
+
+pub const ClusterId = [16]u8;
+
+pub const AppliedPosition = struct {
+    index: u64,
+    term: u64,
+};
 
 pub const Error = error{
     OutOfMemory,
@@ -28,6 +37,8 @@ pub const Error = error{
     InvalidRequest,
     QueryLimitExceeded,
     ResultTooLarge,
+    InvalidAppliedState,
+    IncompatibleDatabase,
     InvalidSnapshot,
     SnapshotTooLarge,
 };
@@ -57,18 +68,48 @@ pub const Database = struct {
     allocator: std.mem.Allocator,
     db: *c.sqlite3,
     authorizer_mode: *AuthorizerMode,
+    cluster_id: ClusterId,
+    persistent: bool,
 
     pub fn init(allocator: std.mem.Allocator) Error!Database {
-        var self = try openEmpty(allocator);
+        const cluster_id = [_]u8{0} ** 16;
+        var self = try openConnection(allocator, ":memory:", cluster_id, false);
         errdefer self.deinit();
         try self.initializeSchema();
+        try self.configureMemory();
         return self;
     }
 
-    fn openEmpty(allocator: std.mem.Allocator) Error!Database {
+    pub fn openFile(allocator: std.mem.Allocator, path: [:0]const u8, cluster_id: ClusterId) Error!Database {
+        var self = try openConnection(allocator, path, cluster_id, true);
+        errdefer self.deinit();
+        if (try self.hasSchema()) {
+            try self.validateSchema();
+            try self.configurePersistent();
+        } else {
+            if (try self.schemaObjectCount() != 0) return error.IncompatibleDatabase;
+            try self.configurePersistent();
+            try self.initializeSchema();
+        }
+        return self;
+    }
+
+    fn openMemory(allocator: std.mem.Allocator, cluster_id: ClusterId) Error!Database {
+        var self = try openConnection(allocator, ":memory:", cluster_id, false);
+        errdefer self.deinit();
+        try self.configureMemory();
+        return self;
+    }
+
+    fn openConnection(
+        allocator: std.mem.Allocator,
+        path: [*:0]const u8,
+        cluster_id: ClusterId,
+        persistent: bool,
+    ) Error!Database {
         var db: ?*c.sqlite3 = null;
         const rc = c.sqlite3_open_v2(
-            ":memory:",
+            path,
             &db,
             c.SQLITE_OPEN_READWRITE | c.SQLITE_OPEN_CREATE | c.SQLITE_OPEN_FULLMUTEX,
             null,
@@ -83,7 +124,13 @@ pub const Database = struct {
         };
         errdefer allocator.destroy(authorizer_mode);
         authorizer_mode.* = .internal;
-        const self: Database = .{ .allocator = allocator, .db = db.?, .authorizer_mode = authorizer_mode };
+        const self: Database = .{
+            .allocator = allocator,
+            .db = db.?,
+            .authorizer_mode = authorizer_mode,
+            .cluster_id = cluster_id,
+            .persistent = persistent,
+        };
         errdefer _ = c.sqlite3_close_v2(self.db);
         if (c.sqlite3_libversion_number() != @as(c_int, @intCast(sqlite_version_number))) {
             return error.SqliteFailure;
@@ -116,17 +163,29 @@ pub const Database = struct {
     fn initializeSchema(self: *Database) Error!void {
         self.authorizer_mode.* = .internal;
         try self.execInternal("PRAGMA page_size=4096");
-        try self.execInternal("PRAGMA journal_mode=MEMORY");
         try self.execInternal("PRAGMA foreign_keys=ON");
         try self.execInternal("PRAGMA max_page_count=16384");
+        try self.execInternal("BEGIN IMMEDIATE");
+        var active = true;
+        errdefer if (active) self.execInternal("ROLLBACK") catch {};
         try self.execInternal(
             \\CREATE TABLE __raft_sqlite_meta (
             \\  id INTEGER PRIMARY KEY CHECK (id = 1),
             \\  format_version INTEGER NOT NULL,
-            \\  applied_index INTEGER NOT NULL
+            \\  applied_index INTEGER NOT NULL,
+            \\  applied_term INTEGER NOT NULL,
+            \\  cluster_id BLOB NOT NULL
             \\) STRICT;
         );
-        try self.execInternal("INSERT INTO __raft_sqlite_meta VALUES (1, 1, 0)");
+        const metadata = try self.prepareInternal(
+            "INSERT INTO __raft_sqlite_meta VALUES (1, 2, 0, 0, ?1)",
+        );
+        defer _ = c.sqlite3_finalize(metadata);
+        if (c.sqlite3_bind_blob(metadata, 1, &self.cluster_id, self.cluster_id.len, c.SQLITE_TRANSIENT) != c.SQLITE_OK or
+            c.sqlite3_step(metadata) != c.SQLITE_DONE)
+        {
+            return error.SqliteFailure;
+        }
         try self.execInternal(
             \\CREATE TABLE __raft_sqlite_requests (
             \\  request_id TEXT PRIMARY KEY,
@@ -138,6 +197,21 @@ pub const Database = struct {
         try self.execInternal(
             "CREATE INDEX __raft_sqlite_requests_applied ON __raft_sqlite_requests(applied_index)",
         );
+        try self.execInternal("COMMIT");
+        active = false;
+    }
+
+    fn configureMemory(self: *Database) Error!void {
+        try self.execInternal("PRAGMA journal_mode=MEMORY");
+        try self.execInternal("PRAGMA foreign_keys=ON");
+        try self.execInternal("PRAGMA max_page_count=16384");
+    }
+
+    fn configurePersistent(self: *Database) Error!void {
+        try self.execInternal("PRAGMA journal_mode=DELETE");
+        try self.execInternal("PRAGMA synchronous=EXTRA");
+        try self.execInternal("PRAGMA foreign_keys=ON");
+        try self.execInternal("PRAGMA max_page_count=16384");
     }
 
     pub fn apply(
@@ -146,18 +220,20 @@ pub const Database = struct {
         request: pb.ExecuteRequest,
         request_hash: [std.crypto.hash.sha2.Sha256.digest_length]u8,
         applied_index: u64,
+        applied_term: u64,
     ) Error![]u8 {
-        if (!validExecuteRequest(request)) return self.recordInvalidRequest(allocator, request, request_hash, applied_index);
+        if (!validExecuteRequest(request)) return self.recordInvalidRequest(allocator, request, request_hash, applied_index, applied_term);
 
         self.authorizer_mode.* = .internal;
         try self.execInternal("BEGIN IMMEDIATE");
         var active = true;
         errdefer if (active) self.execInternal("ROLLBACK") catch {};
+        try self.requireNewerIndex(applied_index);
 
         if (try self.lookupRequest(allocator, request.request_id)) |stored| {
             defer allocator.free(stored.hash);
             if (std.mem.eql(u8, stored.hash, &request_hash)) {
-                try self.updateAppliedIndex(applied_index);
+                try self.updateAppliedPosition(applied_index, applied_term);
                 try self.execInternal("COMMIT");
                 active = false;
                 return stored.response;
@@ -169,7 +245,7 @@ pub const Database = struct {
                 .applied_index = applied_index,
             });
             errdefer allocator.free(encoded);
-            try self.updateAppliedIndex(applied_index);
+            try self.updateAppliedPosition(applied_index, applied_term);
             try self.execInternal("COMMIT");
             active = false;
             return encoded;
@@ -216,7 +292,7 @@ pub const Database = struct {
         errdefer allocator.free(encoded);
         try self.insertRequest(request.request_id, &request_hash, encoded, applied_index);
         try self.pruneRequests(applied_index);
-        try self.updateAppliedIndex(applied_index);
+        try self.updateAppliedPosition(applied_index, applied_term);
         try self.execInternal("COMMIT");
         active = false;
         return encoded;
@@ -228,11 +304,13 @@ pub const Database = struct {
         request: pb.ExecuteRequest,
         request_hash: [std.crypto.hash.sha2.Sha256.digest_length]u8,
         applied_index: u64,
+        applied_term: u64,
     ) Error![]u8 {
         self.authorizer_mode.* = .internal;
         try self.execInternal("BEGIN IMMEDIATE");
         var active = true;
         errdefer if (active) self.execInternal("ROLLBACK") catch {};
+        try self.requireNewerIndex(applied_index);
         const encoded = try encodeExecuteResponse(allocator, .{
             .code = .EXECUTE_CODE_INVALID_REQUEST,
             .error_message = "invalid execute request",
@@ -244,7 +322,7 @@ pub const Database = struct {
                 defer allocator.free(stored.hash);
                 if (std.mem.eql(u8, stored.hash, &request_hash)) {
                     allocator.free(encoded);
-                    try self.updateAppliedIndex(applied_index);
+                    try self.updateAppliedPosition(applied_index, applied_term);
                     try self.execInternal("COMMIT");
                     active = false;
                     return stored.response;
@@ -255,18 +333,24 @@ pub const Database = struct {
                 try self.pruneRequests(applied_index);
             }
         }
-        try self.updateAppliedIndex(applied_index);
+        try self.updateAppliedPosition(applied_index, applied_term);
         try self.execInternal("COMMIT");
         active = false;
         return encoded;
     }
 
-    pub fn advance(self: *Database, applied_index: u64) Error!void {
+    pub fn advance(self: *Database, applied_index: u64, applied_term: u64) Error!void {
         self.authorizer_mode.* = .internal;
         try self.execInternal("BEGIN IMMEDIATE");
         var active = true;
         errdefer if (active) self.execInternal("ROLLBACK") catch {};
-        try self.updateAppliedIndex(applied_index);
+        const current = try self.appliedPosition();
+        if (applied_index < current.index or
+            (applied_index == current.index and applied_term != current.term))
+        {
+            return error.InvalidAppliedState;
+        }
+        if (applied_index > current.index) try self.updateAppliedPosition(applied_index, applied_term);
         try self.execInternal("COMMIT");
         active = false;
     }
@@ -329,29 +413,32 @@ pub const Database = struct {
         return response;
     }
 
-    pub fn takeSnapshot(self: *Database, allocator: std.mem.Allocator, applied_index: u64) Error![]u8 {
-        try self.advance(applied_index);
+    pub fn takeSnapshot(
+        self: *Database,
+        allocator: std.mem.Allocator,
+        applied_index: u64,
+        applied_term: u64,
+    ) Error![]u8 {
+        try self.advance(applied_index, applied_term);
         var image_size: c.sqlite3_int64 = 0;
         const image = c.sqlite3_serialize(self.db, "main", &image_size, 0);
         if (image == null) return error.OutOfMemory;
         defer c.sqlite3_free(image);
         if (image_size < 0 or image_size > max_database_bytes) return error.SnapshotTooLarge;
-        const payload_len: usize = @intCast(image_size);
-        const snapshot_data = allocator.alloc(u8, snapshot_header_bytes + payload_len) catch return error.OutOfMemory;
-        errdefer allocator.free(snapshot_data);
-        @memcpy(snapshot_data[0..4], snapshot_magic);
-        std.mem.writeInt(u32, snapshot_data[4..8], snapshot_version, .little);
-        std.mem.writeInt(u64, snapshot_data[8..16], payload_len, .little);
-        std.crypto.hash.sha2.Sha256.hash(image[0..payload_len], snapshot_data[16..snapshot_header_bytes], .{});
-        @memcpy(snapshot_data[snapshot_header_bytes..], image[0..payload_len]);
-        return snapshot_data;
+        return encodeSnapshotImage(allocator, image[0..@intCast(image_size)], snapshot_version);
     }
 
-    pub fn restore(self: *Database, metadata_index: u64, snapshot_data: []const u8) Error!void {
+    pub fn restore(
+        self: *Database,
+        metadata_index: u64,
+        metadata_term: u64,
+        snapshot_data: []const u8,
+    ) Error!void {
         if (snapshot_data.len < snapshot_header_bytes or !std.mem.eql(u8, snapshot_data[0..4], snapshot_magic)) {
             return error.InvalidSnapshot;
         }
-        if (std.mem.readInt(u32, snapshot_data[4..8], .little) != snapshot_version) return error.InvalidSnapshot;
+        const version = std.mem.readInt(u32, snapshot_data[4..8], .little);
+        if (version != snapshot_version and version != legacy_snapshot_version) return error.InvalidSnapshot;
         const payload_len = std.mem.readInt(u64, snapshot_data[8..16], .little);
         if (payload_len > max_database_bytes or payload_len != snapshot_data.len - snapshot_header_bytes) {
             return error.InvalidSnapshot;
@@ -361,8 +448,8 @@ pub const Database = struct {
         std.crypto.hash.sha2.Sha256.hash(payload, &digest, .{});
         if (!std.mem.eql(u8, &digest, snapshot_data[16..snapshot_header_bytes])) return error.InvalidSnapshot;
 
-        var candidate = try openEmpty(self.allocator);
-        errdefer candidate.deinit();
+        var candidate = try openMemory(self.allocator, self.cluster_id);
+        defer candidate.deinit();
         const buffer = c.sqlite3_malloc64(max_database_bytes) orelse return error.OutOfMemory;
         @memcpy(@as([*]u8, @ptrCast(buffer))[0..payload.len], payload);
         const rc = c.sqlite3_deserialize(
@@ -377,17 +464,21 @@ pub const Database = struct {
             return error.InvalidSnapshot;
         }
         try candidate.checkIntegrity();
-        if (try candidate.appliedIndex() != metadata_index) return error.InvalidSnapshot;
-        candidate.authorizer_mode.* = .internal;
-        try candidate.execInternal("PRAGMA max_page_count=16384");
+        if (version == legacy_snapshot_version) {
+            try candidate.migrateLegacySchema(metadata_index, metadata_term);
+        } else {
+            try candidate.validateSchema();
+        }
+        const candidate_position = try candidate.appliedPosition();
+        if (candidate_position.index != metadata_index or candidate_position.term != metadata_term) {
+            return error.InvalidSnapshot;
+        }
 
-        const old = self.db;
-        const old_authorizer_mode = self.authorizer_mode;
-        self.db = candidate.db;
-        self.authorizer_mode = candidate.authorizer_mode;
-        candidate.db = old;
-        candidate.authorizer_mode = old_authorizer_mode;
-        candidate.deinit();
+        const backup = c.sqlite3_backup_init(self.db, "main", candidate.db, "main") orelse return error.SqliteFailure;
+        const step_rc = c.sqlite3_backup_step(backup, -1);
+        const finish_rc = c.sqlite3_backup_finish(backup);
+        if (step_rc == c.SQLITE_NOMEM or finish_rc == c.SQLITE_NOMEM) return error.OutOfMemory;
+        if (step_rc != c.SQLITE_DONE or finish_rc != c.SQLITE_OK) return error.SqliteFailure;
     }
 
     pub fn serializedSize(self: *Database) Error!u64 {
@@ -404,12 +495,186 @@ pub const Database = struct {
         return std.math.mul(u64, @intCast(pages), @intCast(bytes_per_page)) catch error.SqliteFailure;
     }
 
-    pub fn appliedIndex(self: *Database) Error!u64 {
+    pub fn appliedPosition(self: *Database) Error!AppliedPosition {
         self.authorizer_mode.* = .internal;
-        const statement = try self.prepareInternal("SELECT applied_index FROM __raft_sqlite_meta WHERE id = 1");
+        const statement = try self.prepareInternal(
+            "SELECT applied_index, applied_term FROM __raft_sqlite_meta WHERE id = 1",
+        );
         defer _ = c.sqlite3_finalize(statement);
         if (c.sqlite3_step(statement) != c.SQLITE_ROW) return error.SqliteFailure;
-        return @intCast(c.sqlite3_column_int64(statement, 0));
+        const index = c.sqlite3_column_int64(statement, 0);
+        const term = c.sqlite3_column_int64(statement, 1);
+        if (index < 0 or term < 0) return error.IncompatibleDatabase;
+        return .{ .index = @intCast(index), .term = @intCast(term) };
+    }
+
+    pub fn appliedIndex(self: *Database) Error!u64 {
+        return (try self.appliedPosition()).index;
+    }
+
+    fn hasSchema(self: *Database) Error!bool {
+        self.authorizer_mode.* = .internal;
+        const statement = try self.prepareInternal(
+            "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = '__raft_sqlite_meta'",
+        );
+        defer _ = c.sqlite3_finalize(statement);
+        if (c.sqlite3_step(statement) != c.SQLITE_ROW) return error.SqliteFailure;
+        return c.sqlite3_column_int64(statement, 0) == 1;
+    }
+
+    fn schemaObjectCount(self: *Database) Error!u64 {
+        self.authorizer_mode.* = .internal;
+        const statement = try self.prepareInternal(
+            "SELECT count(*) FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'",
+        );
+        defer _ = c.sqlite3_finalize(statement);
+        if (c.sqlite3_step(statement) != c.SQLITE_ROW) return error.SqliteFailure;
+        const count = c.sqlite3_column_int64(statement, 0);
+        if (count < 0) return error.SqliteFailure;
+        return @intCast(count);
+    }
+
+    fn validateSchema(self: *Database) Error!void {
+        self.checkIntegrity() catch return error.IncompatibleDatabase;
+        self.authorizer_mode.* = .internal;
+        const page_statement = try self.prepareInternal("PRAGMA page_size");
+        defer _ = c.sqlite3_finalize(page_statement);
+        if (c.sqlite3_step(page_statement) != c.SQLITE_ROW or
+            c.sqlite3_column_int64(page_statement, 0) != page_size)
+        {
+            return error.IncompatibleDatabase;
+        }
+
+        const statement = try self.prepareInternal(
+            "SELECT format_version, applied_index, applied_term, cluster_id FROM __raft_sqlite_meta WHERE id = 1",
+        );
+        defer _ = c.sqlite3_finalize(statement);
+        if (c.sqlite3_step(statement) != c.SQLITE_ROW or
+            c.sqlite3_column_int64(statement, 0) != schema_version or
+            c.sqlite3_column_int64(statement, 1) < 0 or
+            c.sqlite3_column_int64(statement, 2) < 0 or
+            c.sqlite3_column_bytes(statement, 3) != self.cluster_id.len)
+        {
+            return error.IncompatibleDatabase;
+        }
+        const raw_cluster_id = c.sqlite3_column_blob(statement, 3) orelse return error.IncompatibleDatabase;
+        const stored_cluster_id: [*]const u8 = @ptrCast(raw_cluster_id);
+        if (!std.mem.eql(u8, stored_cluster_id[0..self.cluster_id.len], &self.cluster_id)) {
+            return error.IncompatibleDatabase;
+        }
+        if (!try self.hasCanonicalMetadataSchema() or !try self.hasCanonicalRequestSchema()) {
+            return error.IncompatibleDatabase;
+        }
+    }
+
+    fn migrateLegacySchema(self: *Database, metadata_index: u64, metadata_term: u64) Error!void {
+        self.authorizer_mode.* = .internal;
+        if (!try self.hasLegacyMetadataSchema() or !try self.hasCanonicalRequestSchema()) {
+            return error.InvalidSnapshot;
+        }
+        {
+            const legacy = try self.prepareInternal(
+                "SELECT format_version, applied_index FROM __raft_sqlite_meta WHERE id = 1",
+            );
+            defer _ = c.sqlite3_finalize(legacy);
+            if (c.sqlite3_step(legacy) != c.SQLITE_ROW or
+                c.sqlite3_column_int64(legacy, 0) != 1 or
+                c.sqlite3_column_int64(legacy, 1) < 0 or
+                @as(u64, @intCast(c.sqlite3_column_int64(legacy, 1))) != metadata_index)
+            {
+                return error.InvalidSnapshot;
+            }
+        }
+        if (metadata_term > std.math.maxInt(i64)) return error.InvalidSnapshot;
+
+        try self.execInternal("BEGIN IMMEDIATE");
+        var active = true;
+        errdefer if (active) self.execInternal("ROLLBACK") catch {};
+        try self.execInternal("ALTER TABLE __raft_sqlite_meta RENAME TO __raft_sqlite_meta_legacy");
+        try self.execInternal(
+            \\CREATE TABLE __raft_sqlite_meta (
+            \\  id INTEGER PRIMARY KEY CHECK (id = 1),
+            \\  format_version INTEGER NOT NULL,
+            \\  applied_index INTEGER NOT NULL,
+            \\  applied_term INTEGER NOT NULL,
+            \\  cluster_id BLOB NOT NULL
+            \\) STRICT;
+        );
+        {
+            const update = try self.prepareInternal(
+                "INSERT INTO __raft_sqlite_meta VALUES (1, 2, ?1, ?2, ?3)",
+            );
+            defer _ = c.sqlite3_finalize(update);
+            if (c.sqlite3_bind_int64(update, 1, @intCast(metadata_index)) != c.SQLITE_OK or
+                c.sqlite3_bind_int64(update, 2, @intCast(metadata_term)) != c.SQLITE_OK or
+                c.sqlite3_bind_blob(update, 3, &self.cluster_id, self.cluster_id.len, c.SQLITE_TRANSIENT) != c.SQLITE_OK or
+                c.sqlite3_step(update) != c.SQLITE_DONE)
+            {
+                return error.InvalidSnapshot;
+            }
+        }
+        try self.execInternal("DROP TABLE __raft_sqlite_meta_legacy");
+        try self.execInternal("COMMIT");
+        active = false;
+        try self.validateSchema();
+    }
+
+    fn hasCanonicalMetadataSchema(self: *Database) Error!bool {
+        return try self.scalarEquals(
+            \\SELECT count(*) FROM pragma_table_xinfo('__raft_sqlite_meta')
+            \\WHERE hidden = 0 AND (
+            \\  (cid = 0 AND name = 'id' AND type = 'INTEGER' AND pk = 1) OR
+            \\  (cid = 1 AND name = 'format_version' AND type = 'INTEGER' AND "notnull" = 1 AND pk = 0) OR
+            \\  (cid = 2 AND name = 'applied_index' AND type = 'INTEGER' AND "notnull" = 1 AND pk = 0) OR
+            \\  (cid = 3 AND name = 'applied_term' AND type = 'INTEGER' AND "notnull" = 1 AND pk = 0) OR
+            \\  (cid = 4 AND name = 'cluster_id' AND type = 'BLOB' AND "notnull" = 1 AND pk = 0)
+            \\)
+        , 5) and
+            try self.scalarEquals("SELECT count(*) FROM pragma_table_xinfo('__raft_sqlite_meta')", 5) and
+            try self.scalarEquals("SELECT count(*) FROM pragma_table_list WHERE schema = 'main' AND name = '__raft_sqlite_meta' AND strict = 1", 1) and
+            try self.scalarEquals("SELECT count(*) FROM __raft_sqlite_meta WHERE id = 1", 1) and
+            try self.scalarEquals("SELECT count(*) FROM __raft_sqlite_meta", 1) and
+            try self.scalarEquals("SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = '__raft_sqlite_meta' AND instr(replace(lower(sql), ' ', ''), 'check(id=1)') > 0", 1);
+    }
+
+    fn hasLegacyMetadataSchema(self: *Database) Error!bool {
+        return try self.scalarEquals(
+            \\SELECT count(*) FROM pragma_table_xinfo('__raft_sqlite_meta')
+            \\WHERE hidden = 0 AND (
+            \\  (cid = 0 AND name = 'id' AND type = 'INTEGER' AND pk = 1) OR
+            \\  (cid = 1 AND name = 'format_version' AND type = 'INTEGER' AND "notnull" = 1 AND pk = 0) OR
+            \\  (cid = 2 AND name = 'applied_index' AND type = 'INTEGER' AND "notnull" = 1 AND pk = 0)
+            \\)
+        , 3) and
+            try self.scalarEquals("SELECT count(*) FROM pragma_table_xinfo('__raft_sqlite_meta')", 3) and
+            try self.scalarEquals("SELECT count(*) FROM pragma_table_list WHERE schema = 'main' AND name = '__raft_sqlite_meta' AND strict = 1", 1) and
+            try self.scalarEquals("SELECT count(*) FROM __raft_sqlite_meta WHERE id = 1", 1) and
+            try self.scalarEquals("SELECT count(*) FROM __raft_sqlite_meta", 1) and
+            try self.scalarEquals("SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = '__raft_sqlite_meta' AND instr(replace(lower(sql), ' ', ''), 'check(id=1)') > 0", 1);
+    }
+
+    fn hasCanonicalRequestSchema(self: *Database) Error!bool {
+        return try self.scalarEquals(
+            \\SELECT count(*) FROM pragma_table_xinfo('__raft_sqlite_requests')
+            \\WHERE hidden = 0 AND (
+            \\  (cid = 0 AND name = 'request_id' AND type = 'TEXT' AND "notnull" = 1 AND pk = 1) OR
+            \\  (cid = 1 AND name = 'request_hash' AND type = 'BLOB' AND "notnull" = 1 AND pk = 0) OR
+            \\  (cid = 2 AND name = 'response' AND type = 'BLOB' AND "notnull" = 1 AND pk = 0) OR
+            \\  (cid = 3 AND name = 'applied_index' AND type = 'INTEGER' AND "notnull" = 1 AND pk = 0)
+            \\)
+        , 4) and
+            try self.scalarEquals("SELECT count(*) FROM pragma_table_xinfo('__raft_sqlite_requests')", 4) and
+            try self.scalarEquals("SELECT count(*) FROM pragma_table_list WHERE schema = 'main' AND name = '__raft_sqlite_requests' AND strict = 1", 1) and
+            try self.scalarEquals("SELECT count(*) FROM pragma_index_list('__raft_sqlite_requests') WHERE name = '__raft_sqlite_requests_applied' AND \"unique\" = 0", 1) and
+            try self.scalarEquals("SELECT count(*) FROM pragma_index_info('__raft_sqlite_requests_applied') WHERE seqno = 0 AND cid = 3 AND name = 'applied_index'", 1) and
+            try self.scalarEquals("SELECT count(*) FROM pragma_index_info('__raft_sqlite_requests_applied')", 1);
+    }
+
+    fn scalarEquals(self: *Database, sql: [*:0]const u8, expected: i64) Error!bool {
+        const statement = try self.prepareInternal(sql);
+        defer _ = c.sqlite3_finalize(statement);
+        if (c.sqlite3_step(statement) != c.SQLITE_ROW) return error.SqliteFailure;
+        return c.sqlite3_column_int64(statement, 0) == expected;
     }
 
     fn checkIntegrity(self: *Database) Error!void {
@@ -532,10 +797,20 @@ pub const Database = struct {
         }
     }
 
-    fn updateAppliedIndex(self: *Database, index: u64) Error!void {
-        const statement = try self.prepareInternal("UPDATE __raft_sqlite_meta SET applied_index = ?1 WHERE id = 1");
+    fn requireNewerIndex(self: *Database, index: u64) Error!void {
+        if (index > std.math.maxInt(i64) or index <= (try self.appliedPosition()).index) {
+            return error.InvalidAppliedState;
+        }
+    }
+
+    fn updateAppliedPosition(self: *Database, index: u64, term: u64) Error!void {
+        if (index > std.math.maxInt(i64) or term > std.math.maxInt(i64)) return error.InvalidAppliedState;
+        const statement = try self.prepareInternal(
+            "UPDATE __raft_sqlite_meta SET applied_index = ?1, applied_term = ?2 WHERE id = 1",
+        );
         defer _ = c.sqlite3_finalize(statement);
         if (c.sqlite3_bind_int64(statement, 1, @intCast(index)) != c.SQLITE_OK or
+            c.sqlite3_bind_int64(statement, 2, @intCast(term)) != c.SQLITE_OK or
             c.sqlite3_step(statement) != c.SQLITE_DONE)
         {
             return error.SqliteFailure;
@@ -647,6 +922,18 @@ fn encodeExecuteResponse(allocator: std.mem.Allocator, response: pb.ExecuteRespo
     return output.toOwnedSlice() catch error.OutOfMemory;
 }
 
+fn encodeSnapshotImage(allocator: std.mem.Allocator, image: []const u8, version: u32) Error![]u8 {
+    if (image.len > max_database_bytes) return error.SnapshotTooLarge;
+    const snapshot_data = allocator.alloc(u8, snapshot_header_bytes + image.len) catch return error.OutOfMemory;
+    errdefer allocator.free(snapshot_data);
+    @memcpy(snapshot_data[0..4], snapshot_magic);
+    std.mem.writeInt(u32, snapshot_data[4..8], version, .little);
+    std.mem.writeInt(u64, snapshot_data[8..16], image.len, .little);
+    std.crypto.hash.sha2.Sha256.hash(image, snapshot_data[16..snapshot_header_bytes], .{});
+    @memcpy(snapshot_data[snapshot_header_bytes..], image);
+    return snapshot_data;
+}
+
 fn authorize(
     context: ?*anyopaque,
     action: c_int,
@@ -735,7 +1022,7 @@ test "database applies an atomic parameterized batch and queries it" {
     try insert.parameters.append(scratch, .{ .kind = .{ .text_value = "seven" } });
     try request.statements.append(scratch, insert);
     const hash = testHash("request-1");
-    const encoded = try database.apply(allocator, request, hash, 3);
+    const encoded = try database.apply(allocator, request, hash, 3, 2);
     defer allocator.free(encoded);
 
     var response_reader: std.Io.Reader = .fixed(encoded);
@@ -753,6 +1040,46 @@ test "database applies an atomic parameterized batch and queries it" {
     try std.testing.expectEqualStrings("seven", query_response.rows.items[0].values.items[0].kind.?.text_value);
 }
 
+test "file database persists state and validates cluster identity" {
+    const allocator = std.testing.allocator;
+    var temporary = std.testing.tmpDir(.{ .iterate = true });
+    defer temporary.cleanup();
+    const root_path = try temporary.dir.realPathFileAlloc(std.testing.io, ".", allocator);
+    defer allocator.free(root_path);
+    const path = try std.fmt.allocPrintSentinel(allocator, "{s}/state.sqlite3", .{root_path}, 0);
+    defer allocator.free(path);
+    const cluster_id: ClusterId = .{7} ++ .{0} ** 15;
+
+    {
+        var arena: std.heap.ArenaAllocator = .init(allocator);
+        defer arena.deinit();
+        var database = try Database.openFile(allocator, path, cluster_id);
+        defer database.deinit();
+        var request: pb.ExecuteRequest = .{ .request_id = "persistent" };
+        try request.statements.append(arena.allocator(), .{ .sql = "CREATE TABLE items (value TEXT NOT NULL) STRICT" });
+        try request.statements.append(arena.allocator(), .{ .sql = "INSERT INTO items VALUES ('saved')" });
+        allocator.free(try database.apply(allocator, request, testHash("persistent"), 3, 2));
+    }
+
+    {
+        var database = try Database.openFile(allocator, path, cluster_id);
+        defer database.deinit();
+        try std.testing.expectEqual(AppliedPosition{ .index = 3, .term = 2 }, try database.appliedPosition());
+        var response = try database.query(allocator, .{ .sql = "SELECT value FROM items" });
+        defer response.deinit(allocator);
+        try std.testing.expectEqualStrings("saved", response.rows.items[0].values.items[0].kind.?.text_value);
+    }
+
+    const wrong_cluster: ClusterId = .{8} ++ .{0} ** 15;
+    try std.testing.expectError(error.IncompatibleDatabase, Database.openFile(allocator, path, wrong_cluster));
+    {
+        var database = try Database.openFile(allocator, path, cluster_id);
+        defer database.deinit();
+        try database.execInternal("DROP INDEX __raft_sqlite_requests_applied");
+    }
+    try std.testing.expectError(error.IncompatibleDatabase, Database.openFile(allocator, path, cluster_id));
+}
+
 test "database rolls back a batch that uses a nondeterministic function" {
     const allocator = std.testing.allocator;
     var arena: std.heap.ArenaAllocator = .init(allocator);
@@ -763,13 +1090,13 @@ test "database rolls back a batch that uses a nondeterministic function" {
     defer database.deinit();
     var schema: pb.ExecuteRequest = .{ .request_id = "schema" };
     try schema.statements.append(scratch, .{ .sql = "CREATE TABLE items (id INTEGER PRIMARY KEY) STRICT" });
-    const schema_response = try database.apply(allocator, schema, testHash("schema"), 1);
+    const schema_response = try database.apply(allocator, schema, testHash("schema"), 1, 1);
     allocator.free(schema_response);
 
     var request: pb.ExecuteRequest = .{ .request_id = "bad-batch" };
     try request.statements.append(scratch, .{ .sql = "INSERT INTO items VALUES (1)" });
     try request.statements.append(scratch, .{ .sql = "INSERT INTO items VALUES (random())" });
-    const encoded = try database.apply(allocator, request, testHash("bad-batch"), 2);
+    const encoded = try database.apply(allocator, request, testHash("bad-batch"), 2, 1);
     defer allocator.free(encoded);
     var response_reader: std.Io.Reader = .fixed(encoded);
     var response = try pb.ExecuteResponse.decode(&response_reader, allocator);
@@ -801,17 +1128,17 @@ test "database deduplicates requests and atomically restores snapshots" {
     try request.statements.append(scratch, .{ .sql = "CREATE TABLE items (id INTEGER PRIMARY KEY) STRICT" });
     try request.statements.append(scratch, .{ .sql = "INSERT INTO items VALUES (1)" });
     const hash = testHash("once");
-    const first = try source.apply(allocator, request, hash, 5);
+    const first = try source.apply(allocator, request, hash, 5, 2);
     defer allocator.free(first);
-    const duplicate = try source.apply(allocator, request, hash, 6);
+    const duplicate = try source.apply(allocator, request, hash, 6, 2);
     defer allocator.free(duplicate);
     try std.testing.expectEqualStrings(first, duplicate);
 
-    const snapshot_data = try source.takeSnapshot(allocator, 6);
+    const snapshot_data = try source.takeSnapshot(allocator, 6, 2);
     defer allocator.free(snapshot_data);
     var restored = try Database.init(allocator);
     defer restored.deinit();
-    try restored.restore(6, snapshot_data);
+    try restored.restore(6, 2, snapshot_data);
     var query_response = try restored.query(allocator, .{ .sql = "SELECT count(*) FROM items" });
     defer query_response.deinit(allocator);
     try std.testing.expectEqual(@as(i64, 1), query_response.rows.items[0].values.items[0].kind.?.integer_value);
@@ -819,6 +1146,79 @@ test "database deduplicates requests and atomically restores snapshots" {
     var corrupt = try allocator.dupe(u8, snapshot_data);
     defer allocator.free(corrupt);
     corrupt[corrupt.len - 1] ^= 1;
-    try std.testing.expectError(error.InvalidSnapshot, restored.restore(6, corrupt));
+    try std.testing.expectError(error.InvalidSnapshot, restored.restore(6, 2, corrupt));
     try std.testing.expectEqual(@as(u64, 6), try restored.appliedIndex());
+}
+
+test "failed online backup leaves the destination database unchanged" {
+    const allocator = std.testing.allocator;
+    var arena: std.heap.ArenaAllocator = .init(allocator);
+    defer arena.deinit();
+
+    var source = try Database.init(allocator);
+    defer source.deinit();
+    var source_request: pb.ExecuteRequest = .{ .request_id = "large-source" };
+    try source_request.statements.append(arena.allocator(), .{ .sql = "CREATE TABLE payloads (value BLOB NOT NULL) STRICT" });
+    try source_request.statements.append(arena.allocator(), .{ .sql = "INSERT INTO payloads VALUES (zeroblob(65536))" });
+    allocator.free(try source.apply(allocator, source_request, testHash("large-source"), 2, 1));
+    const snapshot_data = try source.takeSnapshot(allocator, 2, 1);
+    defer allocator.free(snapshot_data);
+
+    var destination = try Database.init(allocator);
+    defer destination.deinit();
+    var destination_request: pb.ExecuteRequest = .{ .request_id = "destination" };
+    try destination_request.statements.append(arena.allocator(), .{ .sql = "CREATE TABLE marker (value TEXT NOT NULL) STRICT" });
+    try destination_request.statements.append(arena.allocator(), .{ .sql = "INSERT INTO marker VALUES ('original')" });
+    allocator.free(try destination.apply(allocator, destination_request, testHash("destination"), 1, 1));
+    const current_pages = (try destination.serializedSize()) / page_size;
+    var pragma_buffer: [64]u8 = undefined;
+    const pragma = try std.fmt.bufPrintZ(&pragma_buffer, "PRAGMA max_page_count={}", .{current_pages});
+    try destination.execInternal(pragma);
+
+    try std.testing.expectError(error.SqliteFailure, destination.restore(2, 1, snapshot_data));
+    try std.testing.expectEqual(AppliedPosition{ .index = 1, .term = 1 }, try destination.appliedPosition());
+    var response = try destination.query(allocator, .{ .sql = "SELECT value FROM marker" });
+    defer response.deinit(allocator);
+    try std.testing.expectEqualStrings("original", response.rows.items[0].values.items[0].kind.?.text_value);
+}
+
+test "database migrates legacy snapshot metadata before installation" {
+    const allocator = std.testing.allocator;
+    const cluster_id: ClusterId = .{9} ++ .{0} ** 15;
+    var legacy = try Database.openMemory(allocator, cluster_id);
+    defer legacy.deinit();
+    try legacy.execInternal(
+        \\CREATE TABLE __raft_sqlite_meta (
+        \\  id INTEGER PRIMARY KEY CHECK (id = 1),
+        \\  format_version INTEGER NOT NULL,
+        \\  applied_index INTEGER NOT NULL
+        \\) STRICT;
+    );
+    try legacy.execInternal("INSERT INTO __raft_sqlite_meta VALUES (1, 1, 4)");
+    try legacy.execInternal(
+        \\CREATE TABLE __raft_sqlite_requests (
+        \\  request_id TEXT PRIMARY KEY,
+        \\  request_hash BLOB NOT NULL,
+        \\  response BLOB NOT NULL,
+        \\  applied_index INTEGER NOT NULL
+        \\) STRICT;
+    );
+    try legacy.execInternal("CREATE INDEX __raft_sqlite_requests_applied ON __raft_sqlite_requests(applied_index)");
+    try legacy.execInternal("CREATE TABLE items (value INTEGER NOT NULL) STRICT");
+    try legacy.execInternal("INSERT INTO items VALUES (42)");
+
+    var image_size: c.sqlite3_int64 = 0;
+    const image = c.sqlite3_serialize(legacy.db, "main", &image_size, 0) orelse return error.OutOfMemory;
+    defer c.sqlite3_free(image);
+    const snapshot_data = try encodeSnapshotImage(allocator, image[0..@intCast(image_size)], legacy_snapshot_version);
+    defer allocator.free(snapshot_data);
+
+    var restored = try Database.init(allocator);
+    restored.cluster_id = cluster_id;
+    defer restored.deinit();
+    try restored.restore(4, 3, snapshot_data);
+    try std.testing.expectEqual(AppliedPosition{ .index = 4, .term = 3 }, try restored.appliedPosition());
+    var response = try restored.query(allocator, .{ .sql = "SELECT value FROM items" });
+    defer response.deinit(allocator);
+    try std.testing.expectEqual(@as(i64, 42), response.rows.items[0].values.items[0].kind.?.integer_value);
 }

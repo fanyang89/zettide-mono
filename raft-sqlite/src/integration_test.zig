@@ -2,6 +2,7 @@ const std = @import("std");
 
 const pb = @import("database_proto");
 const raft = @import("raft_zig");
+const sqlite = @import("sqlite.zig");
 const state_machine = @import("state_machine.zig");
 
 const ProposalProbe = struct {
@@ -57,7 +58,7 @@ fn countRows(allocator: std.mem.Allocator, machine: *state_machine.SqliteStateMa
     return response.rows.items[0].values.items[0].kind.?.integer_value;
 }
 
-test "single-node WAL restores a SQLite snapshot before replaying its suffix" {
+test "single-node restart reuses durable SQLite state without replaying its suffix" {
     const allocator = std.testing.allocator;
     var temporary = std.testing.tmpDir(.{ .iterate = true });
     defer temporary.cleanup();
@@ -65,11 +66,14 @@ test "single-node WAL restores a SQLite snapshot before replaying its suffix" {
     defer allocator.free(root_path);
     const data_dir = try std.fmt.allocPrintSentinel(allocator, "{s}/raft", .{root_path}, 0);
     defer allocator.free(data_dir);
+    const database_path = try std.fmt.allocPrintSentinel(allocator, "{s}/state.sqlite3", .{root_path}, 0);
+    defer allocator.free(database_path);
+    const cluster_id: raft.ClusterId = .{1} ++ .{0} ** 15;
 
     var config: raft.RaftorConfig = .{};
     config.raft.id = 1;
     config.raft.election_timeout_seed = 42;
-    config.cluster_id = .{1} ++ .{0} ** 15;
+    config.cluster_id = cluster_id;
     config.advertise_addr = "test://node-1";
     config.data_dir = data_dir;
     config.snapshot_entries_threshold = 0;
@@ -79,7 +83,7 @@ test "single-node WAL restores a SQLite snapshot before replaying its suffix" {
     {
         var arena: std.heap.ArenaAllocator = .init(allocator);
         defer arena.deinit();
-        var machine = try state_machine.SqliteStateMachine.init(allocator);
+        var machine = try state_machine.SqliteStateMachine.initFile(allocator, database_path, cluster_id);
         defer machine.deinit();
         const node = try raft.Raftor.create(allocator, config, machine.stateMachine());
         defer node.destroy();
@@ -100,7 +104,21 @@ test "single-node WAL restores a SQLite snapshot before replaying its suffix" {
     }
 
     {
-        var machine = try state_machine.SqliteStateMachine.init(allocator);
+        var machine = try state_machine.SqliteStateMachine.initFile(allocator, database_path, cluster_id);
+        defer machine.deinit();
+        const node = try raft.Raftor.create(allocator, config, machine.stateMachine());
+        defer node.destroy();
+        try std.testing.expectEqual(final_index, node.getStatus().applied_index);
+        try std.testing.expectEqual(@as(i64, 1), try countRows(allocator, &machine));
+        try std.testing.expect(final_index > snapshot_index);
+        for (0..8) |_| _ = try node.tick();
+        try std.testing.expectEqual(final_index, node.getStatus().applied_index);
+        try std.testing.expectEqual(@as(i64, 1), try countRows(allocator, &machine));
+    }
+
+    try std.Io.Dir.deleteFileAbsolute(std.testing.io, database_path);
+    {
+        var machine = try state_machine.SqliteStateMachine.initFile(allocator, database_path, cluster_id);
         defer machine.deinit();
         const node = try raft.Raftor.create(allocator, config, machine.stateMachine());
         defer node.destroy();
@@ -112,5 +130,46 @@ test "single-node WAL restores a SQLite snapshot before replaying its suffix" {
         }
         try std.testing.expectEqual(@as(i64, 1), try countRows(allocator, &machine));
         try std.testing.expectEqual(final_index, node.getStatus().applied_index);
+    }
+}
+
+test "restart rejects SQLite state ahead of the durable Raft commit" {
+    const allocator = std.testing.allocator;
+    var temporary = std.testing.tmpDir(.{ .iterate = true });
+    defer temporary.cleanup();
+    const root_path = try temporary.dir.realPathFileAlloc(std.testing.io, ".", allocator);
+    defer allocator.free(root_path);
+    const data_dir = try std.fmt.allocPrintSentinel(allocator, "{s}/raft", .{root_path}, 0);
+    defer allocator.free(data_dir);
+    const database_path = try std.fmt.allocPrintSentinel(allocator, "{s}/state.sqlite3", .{root_path}, 0);
+    defer allocator.free(database_path);
+    const cluster_id: raft.ClusterId = .{2} ++ .{0} ** 15;
+    var config: raft.RaftorConfig = .{};
+    config.raft.id = 1;
+    config.cluster_id = cluster_id;
+    config.advertise_addr = "test://node-1";
+    config.data_dir = data_dir;
+    config.snapshot_entries_threshold = 0;
+
+    var committed_index: u64 = 0;
+    var committed_term: u64 = 0;
+    {
+        var machine = try state_machine.SqliteStateMachine.initFile(allocator, database_path, cluster_id);
+        defer machine.deinit();
+        const node = try raft.Raftor.create(allocator, config, machine.stateMachine());
+        defer node.destroy();
+        try node.campaign();
+        committed_index = node.getStatus().applied_index;
+        committed_term = node.getStatus().term;
+    }
+    {
+        var database = try sqlite.Database.openFile(allocator, database_path, cluster_id);
+        defer database.deinit();
+        try database.advance(committed_index + 1, committed_term);
+    }
+    {
+        var machine = try state_machine.SqliteStateMachine.initFile(allocator, database_path, cluster_id);
+        defer machine.deinit();
+        try std.testing.expectError(error.IncompatibleStorage, raft.Raftor.create(allocator, config, machine.stateMachine()));
     }
 }
