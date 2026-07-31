@@ -2,10 +2,13 @@
 
 A bounded, Raft-replicated SQLite database for Zig.
 
-SQLite runs in memory. The `raft-zig` WAL and SQLite image snapshots are the
-only durable recovery path. Writes are accepted by the leader and replicated as
-versioned protobuf commands. Leader reads use Raft ReadIndex before querying the
-local state machine.
+SQLite stores the durable state machine in `<data-dir>/state.sqlite3`. Each SQL
+transaction atomically persists user data, request deduplication records, and
+the applied Raft index and term. Normal restarts reuse that cursor and replay
+only a missing committed suffix. Raft WAL and image snapshots remain the
+consensus authority and rebuild a missing or lagging SQLite file. Writes are
+accepted by the leader and replicated as versioned protobuf commands. Leader
+reads use Raft ReadIndex before querying the local state machine.
 
 ## Status
 
@@ -13,7 +16,7 @@ local state machine.
 - Typed gRPC Execute, Query, and Status methods
 - Atomic parameterized write batches with request ID deduplication
 - Linearizable leader reads
-- WAL replay, image snapshots, failover, restart, and follower catch-up
+- Durable SQLite restart, WAL suffix replay, image snapshots, and follower catch-up
 - SQLite 3.53.4 amalgamation pinned by SHA3-256
 
 Dynamic membership is not exposed yet. Restart nodes with the same node ID,
@@ -59,6 +62,19 @@ For a three-node cluster, pass the same three `--peer` values to every node:
 
 Each node needs a distinct `--node-id`, API address, Raft address, and data
 directory. All nodes need the same cluster ID.
+
+## Storage
+
+The data directory contains both the `raft-zig` WAL and `state.sqlite3`. Keep
+and restore the directory as one unit, and stop the node before copying it.
+SQLite uses a rollback journal with `synchronous=EXTRA`. User changes and the
+durable applied cursor commit in one transaction.
+
+Raft snapshots contain a checksummed SQLite image. Snapshot installation uses
+the SQLite Online Backup API, so a failed installation rolls back without
+changing the current database. Existing version 1 snapshots are migrated during
+installation. A SQLite cursor ahead of the durable Raft commit, with a mismatched
+term, or from another cluster is rejected at startup.
 
 ## CLI
 
