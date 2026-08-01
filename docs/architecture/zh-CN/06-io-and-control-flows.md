@@ -1,17 +1,45 @@
 # I/O 与控制流程
 
-> 状态：目标流程
+> 状态：Tier 2/3 目标流程；当前只实现其中的局部机制
 
 ## 通信边界
 
 | 流量 | 协议 |
 | --- | --- |
+| qtr host 到 VM-facing Volume publication | iSCSI（Tier 2 首发） |
+| qtr 到 Zettide publish/unpublish 管理接口 | 目标版本化管理 API；具体 transport 在实现 ADR 冻结 |
 | Replica vendor commands、数据读写和重同步 | SPDK NVMf/RDMA（IB、RoCE 或 iWARP） |
 | Node 注册、heartbeat 和状态报告 | grpc-lite |
 | Volume/Replica 创建和删除 | grpc-lite |
 | Primary、lease、epoch 与 fencing 协调 | grpc-lite |
 | NVMf endpoint/namespace 发现 | grpc-lite |
 | 控制节点间 Raft 消息 | raft-zig over grpc-lite |
+
+iSCSI 是外部 VM block transport；NVMf 是 Tier 3 内部 Replica transport。二者不能因都承载 block I/O 而合并生命周期或安全身份。
+
+## Tier 2 Managed Attachment
+
+```mermaid
+sequenceDiagram
+    participant Q as qtr
+    participant Z as Zettide DataService
+    participant I as Host iSCSI
+    participant L as libvirt
+
+    Q->>Q: persist attachment intent + operation ID
+    Q->>Z: Publish(volume_id, host_id, request_id)
+    Z->>Z: Ensure catalog backend + iSCSI IQN/LUN
+    Z-->>Q: publication_id, access_generation, portal, IQN, LUN, serial/WWID
+    Q->>Q: bind publication result to intent
+    Q->>I: discover + login
+    I-->>Q: stable device identity
+    Q->>L: attach VM disk
+    L-->>Q: attached
+```
+
+Intent 必须先于第一个外部副作用持久化，初始 publication ID 为空；Publish 成功后在 login 前补全返回的 identity/access generation 和预期 SCSI serial/WWID。每一步均可在响应丢失后以稳定 operation ID 重试。qtr 重启后不机械重放命令，而是读取 publication、iSCSI session/device 和 libvirt XML 的当前状态后收敛。Detach 先持久化 detaching intent，再移除 libvirt attachment、logout，最后 unpublish。
+
+Tier 3 primary 失效时先执行 Volume epoch fencing 和 committed-boundary recovery；只有 publication path 或 qtr host 变化时不必无条件切换 primary。两种情况都需要在 Raft 推进独立 publication generation。旧 target 可达时 DataService quiesce/drain session并撤销旧 ACL/credential；失联时等待旧 primary lease 安全退出并完成 Replica epoch fencing，不能伪造 drain 成功。新 primary 安装当前 publication authority 后，qtr 才能在调用方指定的 host 上建立新 session 和 attachment。
 
 ## 节点注册
 
@@ -96,8 +124,8 @@ Allocation reservation 包含 allocation ID、Member ID、offset、length 和 ge
 
 ```mermaid
 sequenceDiagram
-    participant App as Application
-    participant F as Local Frontend
+    participant App as VM
+    participant F as iSCSI Publication Frontend
     participant P as Primary Engine
     participant J as Replication Journal
     participant L as Local Replica

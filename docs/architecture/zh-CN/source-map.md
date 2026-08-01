@@ -9,6 +9,7 @@
 | 组件定位和整体成熟度 | [`../../../README.md`](../../../README.md) |
 | 控制面当前范围 | [`../../../zettide-control/README.md`](../../../zettide-control/README.md) |
 | 数据面当前能力 | [`../../../zettide/README.md`](../../../zettide/README.md) |
+| qtr VM 与外部存储当前能力 | [`../../../qtr/README.md`](../../../qtr/README.md), [`../../../qtr/docs/external-storage.md`](../../../qtr/docs/external-storage.md), [`../../../qtr/docs/vm-configuration.md`](../../../qtr/docs/vm-configuration.md) |
 | Raft 概览和安全边界 | [`../../../raft-zig/README.md`](../../../raft-zig/README.md)（其中 scaffold/planned 状态说明已落后于当前源码） |
 | RPC 功能和限制 | [`../../../grpc-lite/README.md`](../../../grpc-lite/README.md) |
 
@@ -74,27 +75,49 @@
 | Replica 本地 I/O 接口 | [`../../../zettide/src/v3/replica_endpoint.zig`](../../../zettide/src/v3/replica_endpoint.zig) |
 | 本地 replicated block device | [`../../../zettide/src/v3/pool_block_device.zig`](../../../zettide/src/v3/pool_block_device.zig) |
 | Linux 设备安全检查 | [`../../../zettide/src/v3/linux_block_device.zig`](../../../zettide/src/v3/linux_block_device.zig), [`linux_pool_plan.zig`](../../../zettide/src/v3/linux_pool_plan.zig) |
+| Multi-Volume catalog format | [`../../../zettide/docs/v3-multivolume-format.md`](../../../zettide/docs/v3-multivolume-format.md) |
+| Catalog Volume 与 extent mapping | [`../../../zettide/src/v3/pool_catalog_volume.zig`](../../../zettide/src/v3/pool_catalog_volume.zig), [`pool_catalog_mutation.zig`](../../../zettide/src/v3/pool_catalog_mutation.zig) |
+| Catalog endpoint registry | [`../../../zettide/src/endpoint_registry.zig`](../../../zettide/src/endpoint_registry.zig) |
 
 `ReplicaEndpoint` 是本地 vtable，不是跨节点 transport。v3 control journal 不是 Volume 数据 replication journal。
 
-## SPDK/NVMf
+## SPDK block frontend 与 NVMf
 
 | 主题 | 文件 |
 | --- | --- |
-| Zettide link probe | [`../../../zettide/test/spdk_link.c`](../../../zettide/test/spdk_link.c) |
-| Probe 构建脚本 | [`../../../zettide/test/spdk-link.sh`](../../../zettide/test/spdk-link.sh) |
+| Managed SPDK runtime | [`../../../zettide/src/spdk/runtime.zig`](../../../zettide/src/spdk/runtime.zig), [`../../../zettide/src/spdk/runtime.c`](../../../zettide/src/spdk/runtime.c) |
+| SPDK bdev storage backend | [`../../../zettide/src/spdk/storage.zig`](../../../zettide/src/spdk/storage.zig) |
+| NVMe-oF initiator controller | [`../../../zettide/src/spdk/nvme_controller.zig`](../../../zettide/src/spdk/nvme_controller.zig) |
+| Async bdev provider 与 catalog backend | [`../../../zettide/src/spdk/catalog_volume_backend.zig`](../../../zettide/src/spdk/catalog_volume_backend.zig), [`../../../zettide/src/spdk/bdev_provider.c`](../../../zettide/src/spdk/bdev_provider.c) |
+| vhost-user-blk catalog export | [`../../../zettide/src/spdk/catalog_vhost_export.zig`](../../../zettide/src/spdk/catalog_vhost_export.zig), [`../../../zettide/src/spdk/vhost_block_export.zig`](../../../zettide/src/spdk/vhost_block_export.zig) |
+| SPDK focused test steps | [`../../../zettide/build.zig`](../../../zettide/build.zig), [`../../../zettide/test/`](../../../zettide/test/) |
 | SPDK NVMf API | [`../../../third_party/spdk/include/spdk/nvmf.h`](../../../third_party/spdk/include/spdk/nvmf.h) |
+| SPDK iSCSI target reference | [`../../../third_party/spdk/app/iscsi_tgt/iscsi_tgt.c`](../../../third_party/spdk/app/iscsi_tgt/iscsi_tgt.c), [`../../../third_party/spdk/lib/iscsi/`](../../../third_party/spdk/lib/iscsi/) |
 | SPDK bdev API | [`../../../third_party/spdk/include/spdk/bdev.h`](../../../third_party/spdk/include/spdk/bdev.h) |
 | NVMf target 入口 | [`../../../third_party/spdk/app/nvmf_tgt/nvmf_main.c`](../../../third_party/spdk/app/nvmf_tgt/nvmf_main.c) |
 | NVMf subsystem | [`../../../third_party/spdk/lib/nvmf/subsystem.c`](../../../third_party/spdk/lib/nvmf/subsystem.c) |
 | TCP/RDMA transports | [`../../../third_party/spdk/lib/nvmf/tcp.c`](../../../third_party/spdk/lib/nvmf/tcp.c), [`rdma.c`](../../../third_party/spdk/lib/nvmf/rdma.c) |
 
-当前 probe 只初始化 app options 和 TCP/RDMA transport options；不启动 SPDK app，不创建 bdev、subsystem、namespace、listener 或 controller。
+当前 Zettide 已能启动受管 SPDK runtime、访问 bdev、连接 NVMe-oF controller、提供异步 bdev 并创建 vhost-user-blk controller。尚未封装 iSCSI target，也未创建受管 NVMf target subsystem、namespace 或 listener；这些库级路径尚未装配为产品 daemon。
+
+## qtr Storage
+
+| 主题 | 文件 |
+| --- | --- |
+| iSCSI backend、scan、login/logout 与设备发现 | [`../../../qtr/src/storage.rs`](../../../qtr/src/storage.rs) |
+| Storage CLI schema | [`../../../qtr/src/config.rs`](../../../qtr/src/config.rs) |
+| VM file/block disk 与 libvirt reconciliation | [`../../../qtr/src/vm.rs`](../../../qtr/src/vm.rs) |
+
+当前 qtr storage driver 与 VM disk path 相互独立；没有 Zettide Volume identity、managed publication 或持久 attachment reconciliation。
 
 ## 尚无实现的目标能力
 
-- DataService、Node registration 客户端和扩展 heartbeat report。
-- ReplicaPlacement/ReplicaAllocation mutation、extent allocator 和 durable local catalog。
+- DataService 产品 daemon、Node registration 客户端和扩展 heartbeat report。
+- Pool default/per-Volume protection、在线加盘和保护迁移产品生命周期。
+- Zettide managed iSCSI target 与 publication API。
+- qtr Zettide backend、managed attachment 和 republish。
+- Tier 3 Raft publication authority、access generation 和 DataService installed-generation fencing。
+- ReplicaPlacement/ReplicaAllocation mutation、extent allocator 和 durable per-node ReplicaAllocation catalog；本地 Pool multi-Volume catalog 已有独立库级实现。
 - VolumeAttachment mutation 和实际 publish/unpublish 路径。
 - Placement、lease 和 Volume write epoch。
 - Vendor-specific NVMf Replica protocol、两阶段 replication journal 与 2/3 commit certificate。

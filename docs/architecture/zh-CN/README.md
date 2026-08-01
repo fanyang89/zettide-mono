@@ -1,20 +1,32 @@
-# Zettide 分布式存储架构
+# Zettide 存储架构
 
-本文档描述 Zettide 存储系统的当前实现、目标架构、关键不变量和演进路径。
+本文档描述 Zettide 从本地文件系统、单节点 VM 存储服务到分布式高可用存储的当前实现、目标架构、关键不变量和演进路径。
 
 > Zettide 仍处于主动开发阶段。各章使用“当前实现”“目标设计”和“实现差距”区分已经存在的能力与尚未交付的能力。目标设计不能被解释为生产可用性承诺。
 
 ## 范围
 
-本书只覆盖存储系统及其直接依赖：
+本书覆盖存储系统及其与 qtr 的直接集成边界：
 
 - `zettide-control`：元数据和集群控制面
 - `zettide`：本地存储格式、文件系统和目标数据面
 - `raft-zig`：控制面共识、WAL、快照和成员关系
 - `grpc-lite`：控制 RPC 和 Raft transport
-- SPDK 与 NVMe over Fabrics（NVMf）：目标跨节点数据路径
+- SPDK 与 iSCSI：目标单节点 VM-facing block export
+- SPDK 与 NVMe over Fabrics（NVMf）：目标跨节点 Replica 数据路径
+- `qtr`：Volume publish、iSCSI session、libvirt attachment 和 republish 边界
 
-计算调度、虚拟机生命周期、覆盖网络、Web 界面、计费和完整发行版生命周期不在本书范围内。
+除存储 attachment 外的计算调度、虚拟机生命周期、覆盖网络、Web 界面、计费和完整发行版生命周期不在本书范围内。Tier 3 支持把 Volume republish 到调用方指定的 qtr host，但不负责选择该 host 或自动重启 VM。
+
+## 三层目标
+
+| 层级 | 交付能力 | 故障边界 |
+| --- | --- | --- |
+| Tier 1 | 从文件或裸设备在本机挂载 FUSE 文件系统 | 单进程、单机和底层介质 |
+| Tier 2 | 一个 Zettide 节点通过 iSCSI 向 qtr 提供受管 Volume | 可通过本地副本抵抗设备故障；不抵抗存储主机故障 |
+| Tier 3 | 多节点同步复制、storage failover、repair 和 qtr republish | 默认 3/2 current protection 可抵抗单 storage node/Replica 故障；override 按实际保护级别承诺 |
+
+三个 Tier 是累积能力，不是互斥产品。后一级复用前一级的格式、Volume 身份和本地数据路径，并增加新的服务边界与故障保证。
 
 ## 目录
 
@@ -47,6 +59,9 @@
 - `Raft leader` 与 Volume `primary` 是不同角色。
 - `Raft term`、本地 v3 Pool membership epoch 和 Volume write epoch 是不同版本域。
 - 控制面 Pool 与 `zettide` v3 本地 Pool 是不同层次的对象。
+- Pool Member topology 表示容量和故障边界；Volume protection policy 表示副本目标，二者不能互相推导。
+- iSCSI 是 qtr/VM-facing 出口；NVMf 是 Tier 3 内部 Replica transport，二者作用域不同。
+- qtr 持久化稳定 Volume/attachment 身份；portal、IQN/LUN session 和 `/dev/...` 路径是可重建运行时状态。
 - “持久确认”指满足底层 flush/FUA 语义，不是进入内存、发送队列或设备易失缓存。
 - 当前安全模型是可信隔离网络，不是零信任网络。
 - 文档与实现冲突时，以源码、协议和测试为准；入口见[源码映射](source-map.md)。

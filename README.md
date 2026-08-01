@@ -28,7 +28,7 @@ but the unified installation and cluster lifecycle are not production-ready.
 | Component | Role | Implementation |
 | --- | --- | --- |
 | [`qtr`](qtr/) | VM lifecycle, host setup, storage attachment, and web control plane | Rust, React, libvirt/QEMU |
-| [`zettide`](zettide/) | Portable volume format and Linux FUSE filesystem | Zig, littlefs, FUSE 3 |
+| [`zettide`](zettide/) | Local storage engine, Linux FUSE filesystem, and target block data plane | Zig, littlefs, FUSE 3, SPDK |
 | [`zettide-control`](zettide-control/) | Raft-replicated storage metadata and cluster coordination | Zig, raft-zig, grpc-lite |
 | [`etz`](etz/) | Authenticated private networking across untrusted connectivity | Zig, TUN, EasyTier |
 | [`raft-zig`](raft-zig/) | Consensus, membership, WAL, and replicated-state orchestration | Zig |
@@ -54,9 +54,10 @@ own component.
 
 ## Architecture
 
-The [Zettide distributed storage architecture](docs/architecture/zh-CN/README.md)
-documents the current implementation, target control and data planes, consistency
-model, failure behavior, security boundary, and evolution roadmap.
+The [Zettide storage architecture](docs/architecture/zh-CN/README.md) documents
+the current implementation and three cumulative delivery tiers, including the
+qtr attachment boundary, target control and data planes, consistency model,
+failure behavior, security boundary, and evolution roadmap.
 
 ## Development Setup
 
@@ -151,13 +152,33 @@ Privileged filesystem, network, and virtualization integration suites are not
 part of the default root test task. Their host setup and commands are documented
 inside the corresponding component.
 
-## Direction
+## Storage Direction
 
-The integration path is intentionally incremental:
+Storage delivery is intentionally cumulative:
 
-1. Deliver reliable standalone compute, storage, and networking components.
-2. Establish a replicated control plane and durable cluster membership.
-3. Unify host bootstrap, upgrades, observability, and failure recovery.
+| Tier | Goal | Current state |
+| --- | --- | --- |
+| Tier 1 | Mount a local filesystem from a container file or explicitly selected raw devices | Current Linux path; full POSIX-profile completion remains in progress |
+| Tier 2 | Serve local catalog Volumes from one storage node to qtr, with iSCSI as the first managed protocol | Partial libraries only; no daemon, iSCSI export, or managed qtr backend |
+| Tier 3 | Replicate Volumes across storage nodes and republish them after storage failure | Durable metadata foundations exist; distributed I/O, fencing, failover, and republish remain targets |
+
+Tier 2 separates Pool capacity from Volume protection. Adding a device may only
+increase allocatable capacity, or it may let selected Volumes move from one
+replica to a higher replica count. A Pool supplies the default protection
+policy and a Volume may override it; desired protection, achieved protection,
+and migration progress are reported separately.
+
+qtr will consume a stable Zettide Volume identity through a managed backend.
+It will publish the Volume, establish the iSCSI session, resolve the host block
+device, attach it to libvirt, and reconcile those steps after restart. Tier 3
+keeps that contract while adding storage failover and caller-directed
+republish. Automatic VM placement or restart is a separate compute HA concern.
+
+The broader platform integration path remains incremental:
+
+1. Complete each storage tier with explicit end-to-end tests.
+2. Unify compute, storage, networking, and control-plane lifecycle.
+3. Add production security, upgrades, observability, and failure recovery.
 4. Ship a Fedora-native installation with tested high-performance defaults.
 
 Until the final stage is complete, treat this repository as an engineering

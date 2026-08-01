@@ -7,6 +7,7 @@
 首版运行在可信、隔离、由运维控制的存储网络：
 
 - 控制 RPC、Raft transport 和 NVMf 不暴露到公网或不可信租户网络。
+- iSCSI publication 只允许受管 qtr host 从隔离 VM storage 网络访问。
 - 防火墙/VLAN/VRF 只允许受管 Node 和 control voters 访问内部端口。
 - 主机、内核、SPDK 进程和本地介质属于可信计算基。
 - 节点加入通过受控 bootstrap，不因网络可达自动加入。
@@ -69,6 +70,12 @@ Stable ID 不依赖 IP。重新安装节点不能无条件复用旧 Node ID；�
 
 首版 trusted-network 模型只把 epoch-bound session 作为非恶意节点之间的崩溃/分区安全机制。Host NQN 是 initiator 提供的字符串，不能单独证明身份。若 session identity 成为对抗恶意节点的安全边界，授权必须绑定 DH-HMAC-CHAP 或等价不可伪造、可轮换的 epoch credential，并定义分发和撤销顺序。
 
+## iSCSI 与 qtr 边界
+
+Tier 2 首版 iSCSI 运行在可信隔离网络，并以 portal ACL、initiator 限制和受管 host 配置缩小暴露面。这些措施不等于强身份认证。进入生产准入前需要冻结 CHAP 或等价认证、凭据轮换、每 publication 授权和撤销顺序。
+
+qtr 不把 CHAP secret、可重放 publication credential 或原始设备路径作为 VM 的长期身份。秘密进入受限 host credential store，不进入 VM YAML、普通日志或 Zettide Raft state。Detach/republish 撤销旧 host access 后才向新 host 发放凭据。
+
 ## 持久化完整性
 
 当前已有 A/B headers、CRC/摘要、control history、WAL checksum 和故障冻结。这些用于发现损坏，不提供数据机密性或节点真实性。
@@ -94,6 +101,7 @@ Stable ID 不依赖 IP。重新安装节点不能无条件复用旧 Node ID；�
 - Control/DataService 双向认证。
 - 管理、成员变更和恢复操作授权。
 - NVMf initiator/session 认证和隔离。
+- iSCSI initiator/publication 认证、每 host 授权和凭据轮换。
 - 证书签发、轮换、撤销和应急恢复。
 - Lease/epoch fencing 的网络分区验证。
 - 独立安全审查。

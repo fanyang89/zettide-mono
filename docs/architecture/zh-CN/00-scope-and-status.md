@@ -4,15 +4,31 @@
 
 ## 系统边界
 
-Zettide 的目标是将复制元数据控制面与高性能存储数据面组合为一个分布式存储系统：
+Zettide 按三个累积层级交付存储能力：
+
+- Tier 1 由 `zettide` 直接从容器文件或本地 raw Pool 提供 FUSE 文件系统。
+- Tier 2 在一个存储节点上管理 Pool、catalog Volume 和 block export，并通过 iSCSI 接入 qtr。
+- Tier 3 将权威元数据和 Volume Replica 扩展到多个存储节点，提供 storage failover、repair 和 qtr republish。
+
+Tier 3 将复制元数据控制面与高性能存储数据面组合为分布式存储系统：
 
 - `zettide-control` 保存 Pool、Volume、Node、Replica、placement 和写入权威。
 - `zettide` 在每个存储节点管理本地介质、Volume 副本和前端访问。
 - `raft-zig` 复制权威元数据。
 - `grpc-lite` 承载除数据块之外的控制通信。
 - SPDK/NVMf 承载节点之间的副本读写和重同步数据。
+- SPDK/iSCSI 承载 Zettide 与 qtr host 之间的 VM block I/O。
+- qtr 管理 publish、host session、libvirt attachment 和目标 host 上的 republish。
 
 当前仓库中的控制面与数据面尚未端到端贯通，不能描述为完整分布式存储集群。
+
+## Tier 交付状态
+
+| Tier | 当前状态 | 完成标准 |
+| --- | --- | --- |
+| Tier 1 | 部分 | file-backed 与 raw-device FUSE mount 当前可用；完整 Tier 还需满足声明的 POSIX profile 和全部准入测试 |
+| Tier 2 | 部分 | 常驻服务管理动态 Pool 与 catalog Volume；SPDK iSCSI export 和 qtr managed backend 完成 create/publish/attach/restart/detach E2E |
+| Tier 3 | 目标 | 跨节点 2/3 持久提交、lease/epoch fencing、自动 storage failover/repair，以及指定 qtr host 的 republish E2E |
 
 ## 当前状态矩阵
 
@@ -29,8 +45,13 @@ Zettide 的目标是将复制元数据控制面与高性能存储数据面组合
 | 本地 raw Pool | 当前 | 支持单盘和三个本地成员复制 | 接入跨节点资源模型 |
 | 本地复制写入 | 当前 | 三个 endpoint 全部写入，任一失败冻结 writer | 演进为三副本、2/3 持久确认 |
 | 动态本地成员控制 | 部分 | topology、membership 和 control journal 库级能力已实现 | 接入控制面编排与产品生命周期 |
-| SPDK | 部分 | 只验证依赖链接和 TCP/RDMA transport options 初始化 | 启动 SPDK app 并接入实际 bdev |
-| NVMf target/initiator | 目标 | 尚无 subsystem、namespace、listener 或跨节点连接 | 导出 Volume Replica namespace |
+| 本地 multi-Volume catalog | 部分 | catalog codec/graph/store、extent mapping、writable Volume backend 和 endpoint registry 已有库级路径 | 接入产品 CLI、扩容和保护迁移 reconciliation |
+| SPDK runtime 与 bdev | 部分 | managed runtime、bdev dispatcher、异步 provider 和 catalog Volume backend 已有 focused tests | 装配常驻服务与设备生命周期 |
+| vhost-user-blk export | 部分 | catalog Volume 到 vhost block controller 的库级生命周期已实现 | 保留为可选 VM frontend，不作为 Tier 2 首发协议 |
+| iSCSI export | 目标 | vendored SPDK 具备 iSCSI target，但 Zettide 尚未封装或发布 Volume | 作为 Tier 2 首个 qtr managed protocol |
+| qtr iSCSI host 连接 | 部分 | 可手动注册、扫描、login/logout 并发现 Linux block device | 增加 Zettide backend 和 attachment reconciliation |
+| NVMf initiator | 部分 | managed NVMe-oF TCP/RDMA controller wrapper 可连接并枚举 namespace | 接入受管 Replica session |
+| NVMf target | 目标 | 尚无受管 Replica subsystem、namespace 或 listener | 导出内部 Volume Replica namespace |
 | Primary、lease、epoch | 目标 | 尚无协议与数据面 enforcement | 单主同步复制和旧 primary fencing |
 | 生产级节点认证 | 目标 | grpc-lite 不支持 mTLS | 后续增加双向认证或等价安全边界 |
 
@@ -84,13 +105,20 @@ Zettide 的目标是将复制元数据控制面与高性能存储数据面组合
 - 本地 raw block Pool 的安全创建、检查、打开和挂载。
 - Member v3 双头部、控制日志、authority 扫描和故障冻结。
 - 单成员无保护和三个本地成员复制。
+- multi-Volume catalog、extent mapping、catalog data lease 和 writable backend 的库级实现。
+- managed SPDK runtime、bdev dispatcher、NVMe-oF initiator、异步 bdev provider 和 vhost-user-blk export 生命周期。
 
 当前不具备：
 
 - 常驻 DataService 或 Node Agent。
 - grpc-lite 控制客户端和节点注册。
-- SPDK runtime、NVMf target/initiator 和跨节点复制。
+- 产品级 SPDK daemon、iSCSI target、NVMf target 和跨节点复制。
+- 动态扩容、每 Volume 保护策略迁移和对应产品命令。
 - 多数派数据提交、primary 故障切换和后台副本修复。
+
+### qtr
+
+当前具备外部 iSCSI backend 注册、扫描、host login/logout 和设备发现。VM 定义仍引用本地文件或 block path；尚无 Zettide backend、Volume publication、持久 attachment reconciliation 或 storage republish。
 
 ## 成熟度判断
 

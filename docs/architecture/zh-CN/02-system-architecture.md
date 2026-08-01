@@ -6,8 +6,24 @@
 
 ```mermaid
 flowchart LR
+    File[容器文件] --> T1[Tier 1<br/>FUSE mount]
+    Raw[本地 raw Members] --> T1
+    Raw --> T2[Tier 2<br/>catalog Volumes + iSCSI]
+    T2 --> Q[qtr managed backend]
+    Q --> VM[libvirt / VM]
+    CP[zettide-control] -. desired state .-> T3[Tier 3<br/>distributed Volume Engine]
+    Nodes[remote Replica nodes] <-->|NVMf| T3
+    T3 -->|iSCSI publication| Q
+```
+
+Tier 1 直接挂载文件系统。Tier 2 在一个存储节点上增加常驻服务、multi-Volume catalog、动态 Pool、block export 和 qtr attachment。Tier 3 在保持 VM-facing contract 的同时增加复制控制面和跨节点数据路径。
+
+## Tier 3 目标上下文
+
+```mermaid
+flowchart LR
     Client[管理客户端]
-    App[本机应用]
+    Qtr[qtr host]
 
     subgraph CP[zettide-control 集群]
         API[grpc-lite API]
@@ -27,7 +43,7 @@ flowchart LR
     end
 
     subgraph A[Zettide Node A]
-        FE1[本地前端]
+        FE1[iSCSI publication]
         DS1[DataService]
         VE1[Volume Engine / Primary]
         SPDK1[SPDK bdev + NVMf]
@@ -51,7 +67,7 @@ flowchart LR
     end
 
     Client -->|grpc-lite| API
-    App --> FE1
+    Qtr --> FE1
     API -. 注册、placement、lease、状态 .-> DS1
     API -. grpc-lite .-> DS2
     API -. grpc-lite .-> DS3
@@ -73,7 +89,7 @@ flowchart LR
 - 比较 desired/observed state 并执行 reconciliation。
 - 通过 Raft 提交所有权威元数据变更。
 
-当前只实现 Pool 协议和 Pool 内存状态机，尚未装配网络服务和 Raft 集群运行时。
+当前已实现 Pool、Node、Member 和 Volume metadata API/state machine，静态多 voter Raft runtime、WAL、snapshot、ReadIndex、grpc-lite transport 和恢复测试。Placement、Replica mutation、lease、reconciliation 和数据面装配尚未实现。
 
 ### raft-zig
 
@@ -104,13 +120,16 @@ grpc-lite 不负责数据副本复制，也不提供自动 RPC retry、负载均
 - 管理 Member v3 格式、Pool topology、layout 和 control journal。
 - 通过本地 `ReplicaEndpoint` 访问 Member 数据区域。
 - 在本地三成员复制失败后冻结 writer。
+- 管理 multi-Volume catalog、extent mapping、catalog data lease 和本地 writable Volume backend 的库级路径。
+- 提供 managed SPDK runtime、bdev dispatcher、NVMe-oF initiator、异步 bdev provider 和 vhost-user-blk export 生命周期。
 
 目标新增职责：
 
 - 运行常驻 DataService、Volume Engine 和 SPDK reactor。
 - 管理本地 Replica 与 NVMf namespace。
 - 作为 initiator 访问远程 Replica。
-- 执行 primary 写入排序、2/3 提交、fencing 和 resync。
+- 按 protection policy 执行 primary 写入排序、quorum 提交、fencing 和 resync；默认 profile 为 2/3。
+- 先为 Tier 2 管理 iSCSI target、publication 和本地保护迁移。
 
 ### SPDK/NVMf
 
@@ -121,7 +140,21 @@ grpc-lite 不负责数据副本复制，也不提供自动 RPC retry、负载均
 - 通过 NVMf/RDMA 传输跨节点数据；RDMA provider 可以使用 InfiniBand、RoCE 或兼容的 iWARP。
 - 将 I/O completion 映射到明确的 durable flush/FUA 语义。
 
-当前只完成编译和链接探针，不启动 SPDK application framework。
+当前 managed SPDK application framework、bdev access、NVMe-oF initiator、异步 provider 和 vhost-user-blk controller 已有 focused tests。尚未形成常驻服务、受管 iSCSI/NVMf target 或端到端设备生命周期。
+
+### qtr
+
+当前职责：
+
+- 管理 VM 的 file-backed 和 host block-device libvirt disk。
+- 手动注册、扫描、连接和断开外部 iSCSI Volume。
+
+目标新增职责：
+
+- 使用稳定 Zettide Volume ID 请求幂等 publication。
+- 管理 iSCSI login、稳定设备解析、libvirt attachment 和 detach 顺序。
+- 重启后 reconcile publication、session/device 和 libvirt attachment。
+- 在 Tier 3 接受调用方指定的目标 host 并 republish；不负责 VM host 调度或自动重启。
 
 ## 控制路径
 
@@ -133,10 +166,24 @@ grpc-lite 不负责数据副本复制，也不提供自动 RPC retry、负载均
 6. DataService 执行动作并上报 observed state。
 7. 需要改变权威关系的结果再次通过 Raft 提交。
 
-## 数据路径
+## Tier 1 数据路径
 
-1. 本机应用通过 zettide 前端访问 Volume。
-2. 前端将块请求交给当前 primary Volume Engine。
+应用 syscall 经 FUSE/littlefs 访问容器文件或 raw Pool。该路径不依赖 qtr、SPDK daemon 或 `zettide-control`。
+
+## Tier 2 数据路径
+
+1. qtr 根据稳定 Volume ID 请求本 storage node 发布 Volume。
+2. Zettide 将 catalog Volume 接入异步 SPDK bdev provider，并创建 iSCSI target/LUN。
+3. qtr 登录 iSCSI、验证稳定设备身份并生成 libvirt block disk。
+4. I/O 经 iSCSI、SPDK bdev、catalog extent mapping 到达本地 Member。
+5. Detach 先持久化 detaching intent并移除 libvirt 使用，再释放 session 和 publication。
+
+## Tier 3 数据路径
+
+以下步骤描述默认 3/2 protection profile；其他 override 使用自身持久写阈值，只有数据协议支持该 profile 时才能激活。
+
+1. qtr 通过当前 iSCSI publication 访问 Volume。
+2. Publication 将块请求交给当前 primary Volume Engine。
 3. Primary 检查 lease 和 write epoch。
 4. Primary 将写入发送到本地及远程 Replica。
 5. 至少两个 Replica 持久化 prepare/data record；随后至少两个 Replica 持久化 quorum commit certificate，primary 才确认成功。

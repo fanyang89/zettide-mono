@@ -1,6 +1,8 @@
 # 控制面
 
-> 状态：Pool、durable Node/Member registration、leader-local heartbeat、Raft 复制与恢复当前存在；Volume 和 reconciliation 为目标设计
+> 状态：Pool/Volume、durable Node/Member registration、leader-local heartbeat、Raft 复制与恢复当前存在；placement、attachment mutation 和 reconciliation 为目标设计
+
+Tier 1 不需要服务控制面。Tier 2 需要单节点持久管理面来协调 Pool、Volume、publication 和 qtr attachment，但不需要用 Raft 复制每项状态。Tier 3 将跨节点权威状态提交到 `zettide-control` Raft group。
 
 ## 总体结构
 
@@ -33,13 +35,14 @@ WAL 和 snapshot 是恢复介质，不是独立查询数据库。正常查询读
 | API 组 | 职责 | 状态 |
 | --- | --- | --- |
 | Pool | 创建、查询和枚举 Pool | 当前；Create/Get/List grpc-lite handler |
-| Volume | 生命周期、容量和保护策略 | 目标 |
+| Volume | 生命周期、容量和保护策略 | 部分；Create/Get/Delete metadata intent 当前存在 |
 | Node | 持久注册、能力更新、隔离和注销 | 部分；Register/Get/List 当前存在，更新、隔离和注销为目标 |
 | Member | 本地持久单元与控制面 Pool/Node 的绑定 | 当前；create-only Register/Get/List |
 | Heartbeat | incarnation、Member presence 与可选 extent capacity | 当前；leader-local Report/Get，Replica 和路径观测为目标 |
 | Placement | Replica 目标、generation 和迁移状态 | 目标 |
 | Lease | Primary 授权、续期、撤销和 epoch | 目标 |
 | Reconciliation | 下发幂等动作、报告结果与错误 | 目标 |
+| Publication/Attachment | VM-facing export、consumer 和 qtr host 绑定 | 只有 storage-node attachment 占位 schema；Tier 3 Raft publication authority、qtr identity、mutation 和数据面均为目标 |
 
 这些是职责边界，不预先固定具体 RPC 名称。接口落地时使用版本化 protobuf，并保持管理 API 与节点内部 API 分离。
 
@@ -145,6 +148,23 @@ Reconciler 不直接修改状态机，而是执行以下循环：
 
 同一 Volume 的所有权变更必须串行化。慢节点或长时间 repair 不得阻塞 Raft apply。
 
+## qtr Managed Attachment
+
+Tier 2/3 的 attachment reconciliation 至少绑定 `volume_id`、稳定 qtr host identity、VM/disk consumer identity、稳定 operation ID、可空 publication ID 和期望 access mode。目标顺序为：
+
+1. qtr 在任何外部副作用前持久化 attachment intent、稳定 operation ID 和目标 host。
+2. qtr 以该 operation ID 请求 publication；未知响应使用同一 ID 查询或重试。
+3. DataService 幂等创建或返回同一 iSCSI target/LUN、publication ID、access generation 和预期 SCSI serial/WWID；qtr 在 login 前原子补全 intent。
+4. qtr login 并按预期 serial/WWID 验证发现到的设备属于该 publication，而不是复用碰巧相同的 block path。
+5. qtr 把设备接入目标 libvirt disk；重启后比较 intent、publication、session/device 和 libvirt XML，推动四者收敛。
+6. Detach 先持久化 detaching intent，再确认 libvirt 不再使用设备，然后 logout 并请求 unpublish。
+
+Tier 3 primary failover 使用 Volume write epoch 和 Replica fencing；qtr host 转移使用独立的 publication access generation。Publication identity、consumer、target primary Node、access generation、access mode 和 lifecycle 是 Raft 权威状态，不能只保存在原 DataService。本地 DataService 持久化最高 installed generation，并只为匹配当前 Raft authority、active primary lease 和 Volume epoch 的 generation 开放 I/O。
+
+旧 target 可达时，DataService quiesce/drain 旧 iSCSI session并撤销旧 ACL/credential。旧 target 失联时，控制面不能假装完成远程 drain；它等待旧 primary lease 超出安全窗口，在 Replica quorum 完成更高 Volume epoch fencing，并提交更高 publication generation/新 target 后，才允许新 primary 安装 publication。此时旧 iSCSI session 可能暂时存在，但旧 primary 数据路径不能形成 commit。普通 iSCSI command 不携带 Volume epoch，因此 publication generation 仍需要独立管理，不能由 storage epoch 替代。
+
+Publication 创建在 Zettide DataService；调用方指定的新 qtr host 只建立 initiator session 和 libvirt attachment。qtr 不自行选择替代 host。
+
 ## 线程与背压
 
 - grpc-lite callback 只解码、基础校验和有界入队；heartbeat durable binding 校验、store 访问和响应编码在 ReadIndex callback 中执行。
@@ -166,11 +186,11 @@ Reconciler 不直接修改状态机，而是执行以下循环：
 5. 追平 committed/applied index 后才提供一致性服务。
 6. 作为 follower 加入 Raft；成为 leader 后重新收集 heartbeat。
 
-生产配置必须使用持久 `data_dir`。v4 快照保存 Pool、Node、Member 和业务幂等记录，兼容读取 v2/v3；不保存 socket、heartbeat 或临时 action。
+生产配置必须使用持久 `data_dir`。v5 快照保存 Pool、Node、Member、Volume 和业务幂等记录，兼容读取 v2/v3/v4；不保存 socket、heartbeat 或临时 action。
 
 ## 当前差距
 
-- Volume、Replica、placement 和 lease command 尚未定义。
+- Replica/Allocation/Attachment mutation、placement 和 lease command 尚未定义。
 - Member lifecycle、路径健康和 Replica observed report 尚未实现。
 - Node 更新、隔离和注销尚未实现。
 - 没有 reconciler。

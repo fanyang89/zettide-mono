@@ -1,6 +1,8 @@
 # 一致性与 Fencing
 
-> 状态：目标设计；Raft 和本地故障冻结基础当前存在
+> 状态：Tier 2 attachment 与 Tier 3 fencing 为目标设计；Raft 和本地故障冻结基础当前存在
+
+本章详细协议按 Tier 3 默认 3/2 protection profile 描述。其他 override 必须用同一安全结构和自身 read/write/fencing thresholds 完成独立验证；数据面尚未支持的 profile 不能进入 Active。Tier 2 单节点保护迁移只复用 desired/current 分离，不自动获得本章的跨节点 quorum 保证。
 
 ## 一致性分层
 
@@ -9,7 +11,9 @@
 | Pool、Volume、Node、placement、primary、epoch | Raft 状态机 | 线性一致 |
 | Node registration | Raft 状态机 | 线性一致、跨 leader 持久 |
 | Heartbeat 和路径健康 | 当前 leader 内存 | 临时观测、最终收敛 |
-| Volume 写入 | Primary + Replica quorum | 单主、3 副本、2/3 持久确认 |
+| Tier 2 protection migration | 本地持久 catalog + reconciler | desired/current 分离、崩溃后继续收敛 |
+| qtr attachment | 持久 attachment intent + provider/session/libvirt observation | 幂等收敛，不以设备路径作为权威 |
+| Tier 3 Volume 写入 | Primary + Replica quorum | 单主；默认 3 副本、2/3 持久确认，实际保证受 current protection 限制 |
 | Replica 健康和 repair progress | 数据面上报 | 最终收敛，不单独授予权限 |
 
 Raft 对元数据命令排序，不自动保证数据块一致。数据面必须有独立的写入顺序、提交证据和修复协议。
@@ -97,6 +101,23 @@ Replica 永久拒绝低于 `max_accepted_epoch` 的访问。旧 primary 即使�
 
 具体 vendor commands、SPDK request handler 和 session identity 是实现前必须完成的 ADR。首版 trusted-network 模型假设节点非恶意；裸 Host NQN/ACL 不可作为不可伪造认证。若未来将 session identity 纳入安全边界，需要 DH-HMAC-CHAP 或等价的可轮换凭据。
 
+## iSCSI Publication 与 Attachment
+
+iSCSI session 只授权 qtr host 访问 VM-facing publication，不授予一个 storage node 成为 Volume primary 的权力。普通 iSCSI command 不携带 Zettide Volume write epoch，Replica epoch gate 无法区分连接到同一 primary 的新旧 qtr initiator，因此 publication 具有独立、单调的 access generation。
+
+Tier 2 DataService 在本地 catalog 持久化 access generation。Tier 3 则由 Raft 保存 publication identity、target primary、access generation、access mode 和 lifecycle；每个 DataService 另行持久化本机最高 installed generation。Target 将当前 generation 绑定到 session context、ACL/credential 和期望 access mode。
+
+同一 primary 上转移 exclusive writer 时，先 quiesce 旧 session、停止接收新 I/O、drain/flush 已接收请求并撤销旧 ACL/credential，再安装更高 generation。Primary/storage node 失联时无法证明旧 iSCSI session 已 drain；控制面必须等待旧 primary lease 安全退出，并通过 Replica quorum 安装更高 Volume epoch。Raft 随后提交更高 publication generation 和新 target，新 primary 只在 authority、lease、Volume epoch 和 installed generation 全部匹配后开放 I/O。旧 session 即使仍存在也无法在旧 primary 上形成 quorum commit。
+
+Publication path 故障不必然改变 Volume primary 或 write epoch；primary failover 与 publication fencing 是两个可独立发生但在 storage-node loss 中组合执行的 barrier。
+
+Attachment 状态转换遵守以下顺序：
+
+- Attach：先持久化 qtr attachment intent，再建立有效 publication、login 和验证设备身份，最后修改 libvirt attachment。
+- Detach：先持久化 detaching intent并确认 libvirt 不再使用设备，再 logout，最后 unpublish。
+- Republish：若 primary 同时失效，先完成 storage primary fencing 和 committed-boundary recovery；始终完成 publication access-generation fencing，再让指定 qtr host 建立新 session/attachment。
+- 未知响应使用相同 request/publication identity 查询或重试，不能创建第二个可写出口。
+
 ## 数据提交
 
 同一 epoch 内，primary 为写入分配单调 sequence。相同 `(epoch, sequence)` 的重试必须具有相同 range 和 checksum，否则拒绝为协议冲突。
@@ -140,7 +161,8 @@ Replica 永久拒绝低于 `max_accepted_epoch` 的访问。旧 primary 即使�
 - 客户端成功表示 2/3 可验证持久提交。
 - Heartbeat 不授予写权限。
 - 控制面失去多数派后不产生新 lease。
+- Exclusive publication 的 access generation 在 Raft authority 中单调递增；旧 target 可达时撤销并 drain，失联时必须先让旧 primary lease 到期并完成 Replica epoch fencing。
 
 ## 当前差距
 
-当前已有 `raft-zig` 的共识/WAL/ReadIndex，以及 `zettide` 本地写失败冻结和控制记录扫描。尚未实现 Volume lease、write epoch、Replica 持久 fencing、2/3 数据提交证据和 epoch-bound NVMf access。
+当前已有 `raft-zig` 的共识/WAL/ReadIndex，以及 `zettide` 本地写失败冻结和控制记录扫描。尚未实现 managed iSCSI publication、qtr attachment reconciliation、Volume lease、write epoch、Replica 持久 fencing、2/3 数据提交证据和 epoch-bound NVMf access。

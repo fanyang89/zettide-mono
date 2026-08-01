@@ -2,6 +2,8 @@
 
 > 状态：恢复原则为目标设计；本地格式和 Raft 库提供部分基础
 
+除明确标注 Tier 2 的条目外，本章具体 Replica 数量、quorum、commit certificate 和 RPO 示例描述 Tier 3 默认 3/2 profile。Protection override 的 availability 与容错范围由其 current protection/read/write thresholds 决定；尚未验证对应恢复协议的 profile 不可激活。
+
 ## 恢复优先级
 
 1. 不产生两个可写 primary。
@@ -13,6 +15,8 @@
 Heartbeat 丢失只是故障怀疑，不是转移写权限的充分条件。
 
 ## Volume 可用性与运行阶段
+
+默认 3/2 profile 的状态示例：
 
 | Availability | 含义 | 可写 |
 | --- | --- | --- |
@@ -45,6 +49,11 @@ Heartbeat 丢失只是故障怀疑，不是转移写权限的充分条件。
 | 同时永久丢失两个 Replica | 超出保护范围 | 单幸存 Replica 不自动成为新权威 | 人工恢复或找回足够提交证据 |
 | WAL 尾部撕裂 | 单控制节点恢复延迟 | 只截断可证明未完成尾部 | 从有效前缀和 snapshot 恢复 |
 | WAL 中段/snapshot 损坏 | 单控制节点停止启动 | Fail closed，不跳过记录 | 从健康 voter 重新同步或受控加入 |
+| Tier 2 单 Member 失效，Volume 为多副本 | 按 current protection 降级或停止 | 不把 desired replica count 当成可用副本数 | 修复或迁移到健康 Member 并验证 |
+| Tier 2 storage node 失效 | 所有 publication 不可用 | 不宣称 host HA | 恢复原节点；升级到 Tier 3 才支持 storage failover |
+| qtr 重启或 iSCSI session 丢失 | VM disk 暂停或未附加 | 以 attachment intent 和稳定身份重新发现 | publication、session/device 和 libvirt 状态重新收敛 |
+| Tier 3 primary 失效 | VM block I/O 暂停 | 提升 Volume epoch 并 fence Replica quorum | 恢复 committed boundary，再恢复或迁移 publication |
+| Tier 3 publication path/qtr host 失效 | 对应 VM block I/O 暂停 | 在 Raft 提升 publication generation；可达旧 target 撤销并 drain，失联 primary 走 lease + Replica fencing | 当前 primary 安装新 generation，指定 qtr host 重建 session/attachment |
 
 ## Primary Failover
 
@@ -98,6 +107,17 @@ flowchart TD
 
 Journal 已截断时执行范围或全量 rebuild。不能从互相冲突的源按块拼接，除非每个范围都有相同提交身份。
 
+## qtr Republish Recovery
+
+Tier 3 恢复存储服务与恢复 VM 执行是不同动作：
+
+1. Zettide 区分 storage primary 故障与 publication/qtr path 故障并暂停受影响写入。
+2. Primary 失效时控制面推进 Volume epoch、fence Replica quorum并恢复 certified committed boundary；仅 publication path 失效时不无条件切换 primary。
+3. qtr 先持久化 republish intent；调用方选择目标 qtr host，Zettide 不承担 VM 调度决策。
+4. 控制面在 Raft 提交更高 publication access generation 和 target primary。旧 target 可达时 DataService quiesce/drain session并撤销 ACL/credential；失联时依赖步骤 2 的 lease/Replica fencing，不能伪造 drain 成功。
+5. 新 primary DataService 持久化最高 installed generation，并仅在 Raft authority、active primary lease 和 Volume epoch 匹配时为同一 Volume/consumer 激活 target；目标 qtr host 建立 session、验证设备身份并 reconcile libvirt attachment。
+6. VM 是否在该 host 启动、恢复或迁移由计算层另行决定。
+
 ## 控制面恢复
 
 1. 验证 durable cluster/node identity。
@@ -120,4 +140,4 @@ Journal 已截断时执行范围或全量 rebuild。不能从互相冲突的源�
 
 ## 当前差距
 
-`raft-zig` 已有 WAL/snapshot 恢复，`zettide` 已有本地 A/B header、control journal、authority scan 和 write freeze。尚无端到端控制 daemon 恢复、分布式 commit manifest、自动 primary failover、scrub 或 online repair。
+`raft-zig` 已有 WAL/snapshot 恢复，`zettide-control` 已有 daemon restart/failover 测试，`zettide` 已有本地 A/B header、control journal、authority scan 和 write freeze。尚无 control-to-data reconciliation recovery、qtr attachment recovery、分布式 commit manifest、自动 storage primary failover、scrub 或 online repair。
