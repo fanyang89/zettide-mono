@@ -19,4 +19,6 @@ PKG_CONFIG_PATH="$root/third_party/spdk/build/lib/pkgconfig" \
 PKG_CONFIG_PATH="$root/third_party/spdk/build/lib/pkgconfig" \
   zig build test-spdk-vhost-blk-controller --summary all
 PKG_CONFIG_PATH="$root/third_party/spdk/build/lib/pkgconfig" \
+  zig build test-spdk-daemon -Dspdk=true --summary all
+PKG_CONFIG_PATH="$root/third_party/spdk/build/lib/pkgconfig" \
   zig build test-spdk-storage --summary all
