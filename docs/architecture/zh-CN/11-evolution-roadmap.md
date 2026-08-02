@@ -5,6 +5,7 @@
 ## 已有基础
 
 - Tier 1 file-backed 和 raw-device FUSE CLI、格式、恢复和 syscall tests 已存在。
+- 单成员 unprotected v3 target 格式化，以及受监管的外部 dufs HTTP/WebDAV 前端已存在。
 - 本地 dynamic topology/membership、multi-Volume catalog、extent mapping、catalog data lease 和 writable backend 已有库级实现。
 - managed SPDK runtime、bdev dispatcher、NVMe-oF initiator、异步 bdev provider 和 vhost-user-blk export 已有 focused tests。
 - `zettide-control` 已有 Pool/Node/Member/Volume durable metadata、heartbeat、静态多 voter Raft runtime、WAL/snapshot/ReadIndex 和恢复测试。

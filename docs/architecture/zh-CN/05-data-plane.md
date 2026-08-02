@@ -4,7 +4,9 @@
 
 ## Tier 1：本地文件系统
 
-当前 Linux 前端是 foreground FUSE + littlefs。Backend 可以是 sparse container file，或显式选择的 raw Pool。产品 CLI 对 raw Pool 只支持一个无保护设备或三个复制设备；Tier 1 不提供网络文件服务。
+当前 Linux 前端是 foreground FUSE + littlefs。Backend 可以是 sparse container file，或显式选择的 raw Pool。产品 CLI 对 raw Pool 只支持一个无保护设备或三个复制设备；Tier 1 不内建网络文件服务。
+
+`zettide serve dufs` 可以把 file-backed 或单设备 target 挂载到私有 FUSE 目录，并监管 PATH 中的外部 dufs 进程。HTTP/WebDAV、认证与 TLS 由 dufs 提供，不属于存储格式或 Tier 1 核心数据路径；任一进程退出时，CLI 清理私有挂载。
 
 ## Tier 2：单节点 VM block service
 

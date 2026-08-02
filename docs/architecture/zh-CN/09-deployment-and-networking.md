@@ -6,6 +6,8 @@
 
 Tier 1 是单机 foreground FUSE 进程。它访问一个 container file，或独占一个/三个显式选择的 raw devices，不开放 storage network port。
 
+可选的 `zettide serve dufs` 会在命令生命周期内启动外部 dufs，并按透传参数监听 HTTP/WebDAV。监听地址、认证、TLS 与访问控制均由 dufs 配置；它不是 Tier 1 的必需组件，也不改变底层 target 的本地访问模型。
+
 ## Tier 2 参考拓扑
 
 ```mermaid
