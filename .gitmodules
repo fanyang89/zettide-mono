@@ -30,3 +30,7 @@
 	path = zettide-control
 	url = https://github.com/fanyang89/zettide-control.git
 	branch = main
+[submodule "zettide-cawfs"]
+	path = zettide-cawfs
+	url = https://github.com/fanyang89/zettide-cawfs.git
+	branch = main

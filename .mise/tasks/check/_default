@@ -1,4 +1,4 @@
 #!/bin/sh
 #MISE description="Run formatting, tests, and builds for all components"
-#MISE depends=["check:grpc-lite", "check:raft-zig", "check:zettide-control", "check:etz", "check:zettide", "check:qtr"]
+#MISE depends=["check:grpc-lite", "check:raft-zig", "check:zettide-control", "check:etz", "check:zettide-cawfs", "check:zettide", "check:qtr"]
 :

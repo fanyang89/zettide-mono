@@ -1,0 +1,7 @@
+#!/bin/sh
+#MISE description="Test zettide-cawfs"
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+cd "$root/zettide-cawfs"
+exec task test

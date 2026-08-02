@@ -1,0 +1,8 @@
+#!/bin/sh
+#MISE description="Check zettide-cawfs"
+#MISE hide=true
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+cd "$root/zettide-cawfs"
+exec task check

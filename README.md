@@ -29,6 +29,7 @@ but the unified installation and cluster lifecycle are not production-ready.
 | --- | --- | --- |
 | [`qtr`](qtr/) | VM lifecycle, host setup, storage attachment, and web control plane | Rust, React, libvirt/QEMU |
 | [`zettide`](zettide/) | Local storage engine, Linux FUSE filesystem, and target block data plane | Zig, littlefs, FUSE 3, SPDK |
+| [`zettide-cawfs`](zettide-cawfs/) | Conditional-write transaction engine for shared writable filesystems | Zig, SCSI CAW |
 | [`zettide-control`](zettide-control/) | Raft-replicated storage metadata and cluster coordination | Zig, raft-zig, grpc-lite |
 | [`etz`](etz/) | Authenticated private networking across untrusted connectivity | Zig, TUN, EasyTier |
 | [`raft-zig`](raft-zig/) | Consensus, membership, WAL, and replicated-state orchestration | Zig |
