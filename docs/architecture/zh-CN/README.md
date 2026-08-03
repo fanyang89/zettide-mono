@@ -14,7 +14,7 @@
 - `grpc-lite`：控制 RPC 和 Raft transport
 - SPDK 与 iSCSI：目标单节点 VM-facing block export
 - SPDK 与 NVMe over Fabrics（NVMf）：目标跨节点 Replica 数据路径
-- `qtr`：Volume publish、iSCSI session、libvirt attachment 和 republish 边界
+- `qtr`：Volume publish、iSCSI session、libvirt attachment、CAWFS shared qcow2 和 republish 边界
 
 除存储 attachment 外的计算调度、虚拟机生命周期、覆盖网络、Web 界面、计费和完整发行版生命周期不在本书范围内。Tier 3 支持把 Volume republish 到调用方指定的 qtr host，但不负责选择该 host 或自动重启 VM。
 
@@ -42,8 +42,9 @@
 10. [部署与网络](09-deployment-and-networking.md)
 11. [安全边界](10-security.md)
 12. [演进路线图](11-evolution-roadmap.md)
-13. [术语表](glossary.md)
-14. [源码映射](source-map.md)
+13. [CAWFS 共享 qcow2 接入](12-cawfs-shared-qcow2.md)
+14. [术语表](glossary.md)
+15. [源码映射](source-map.md)
 
 ## 状态标记
 
@@ -62,6 +63,7 @@
 - Pool Member topology 表示容量和故障边界；Volume protection policy 表示副本目标，二者不能互相推导。
 - iSCSI 是 qtr/VM-facing 出口；NVMf 是 Tier 3 内部 Replica transport，二者作用域不同。
 - qtr 持久化稳定 Volume/attachment 身份；portal、IQN/LUN session 和 `/dev/...` 路径是可重建运行时状态。
+- shared qcow2 持久化 CAWFS volume/image 身份；mount point 和 image path 是 host-local observation。
 - “持久确认”指满足底层 flush/FUA 语义，不是进入内存、发送队列或设备易失缓存。
 - 当前安全模型是可信隔离网络，不是零信任网络。
 - 文档与实现冲突时，以源码、协议和测试为准；入口见[源码映射](source-map.md)。

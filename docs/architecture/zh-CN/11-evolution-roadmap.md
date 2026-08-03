@@ -86,6 +86,22 @@
 - 建立凭据与证书轮换、滚动升级、回滚、格式兼容和灾难恢复流程。
 - 通过断电、网络分区、介质损坏、旧 host 恢复、长稳和资源耗尽测试。
 
+## Shared-file 支线：CAWFS qcow2
+
+该支线不替代 Milestone 3–4 的 managed raw Volume/iSCSI 路线，按以下依赖顺序推进：
+
+1. 完成 SCSI-backed immutable object store、统一 fault model 和 mount recovery。
+2. 完成 backend-neutral filesystem interface 与 CAWFS POSIX backend。
+3. 复用 Zettide FUSE lifecycle，验证多 host shared mount。
+4. 通过 qemu-img/QEMU cache、locking、sparse 和 durability profile。
+5. qtr 持久化 CAWFS image identity、ownership intent 和 libvirt reconciliation。
+6. 接入 power fence 或 LUN revoke，验证 fenced takeover 和旧 host 恢复。
+
+完成标准：两台 qtr host 可在同一 CAWFS LUN 上并发运行不同 qcow2；同一 qcow2
+的第二个 writable start 被拒绝；clean transfer 和 externally fenced takeover 均不
+产生旧 epoch 写入或已确认写丢失。详细契约见
+[CAWFS 共享 qcow2 接入](12-cawfs-shared-qcow2.md)。
+
 ## 路线图约束
 
 - 不因存在 format、schema 或局部 library 跳过产品生命周期和 E2E 接线。

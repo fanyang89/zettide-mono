@@ -10,6 +10,11 @@ Zettide 按三个累积层级交付存储能力：
 - Tier 2 在一个存储节点上管理 Pool、catalog Volume 和 block export，并通过 iSCSI 接入 qtr。
 - Tier 3 将权威元数据和 Volume Replica 扩展到多个存储节点，提供 storage failover、repair 和 qtr republish。
 
+另有一条不替代 Tier 2/3 block publication 的 shared-file profile：多个 qtr host
+把 qcow2 保存在共同挂载的 CAWFS namespace，每个 image 保持全局 single-writer，
+跨 host 接管必须完成外部硬 fencing。具体契约见
+[CAWFS 共享 qcow2 接入](12-cawfs-shared-qcow2.md)。
+
 Tier 3 将复制元数据控制面与高性能存储数据面组合为分布式存储系统：
 
 - `zettide-control` 保存 Pool、Volume、Node、Replica、placement 和写入权威。
@@ -50,6 +55,7 @@ Tier 3 将复制元数据控制面与高性能存储数据面组合为分布式�
 | vhost-user-blk export | 部分 | catalog Volume 到 vhost block controller 的库级生命周期已实现 | 保留为可选 VM frontend，不作为 Tier 2 首发协议 |
 | iSCSI export | 目标 | vendored SPDK 具备 iSCSI target，但 Zettide 尚未封装或发布 Volume | 作为 Tier 2 首个 qtr managed protocol |
 | qtr iSCSI host 连接 | 部分 | 可手动注册、扫描、login/logout 并发现 Linux block device | 增加 Zettide backend 和 attachment reconciliation |
+| CAWFS shared qcow2 | 部分 | transaction、SCSI CAW/data transport、voting 和 persistent extent allocator 已存在；尚无 POSIX/FUSE 或 qtr 接线 | 多 host shared mount、per-image single-writer 和 fenced takeover |
 | NVMf initiator | 部分 | managed NVMe-oF TCP/RDMA controller wrapper 可连接并枚举 namespace | 接入受管 Replica session |
 | NVMf target | 目标 | 尚无受管 Replica subsystem、namespace 或 listener | 导出内部 Volume Replica namespace |
 | Primary、lease、epoch | 目标 | 尚无协议与数据面 enforcement | 单主同步复制和旧 primary fencing |

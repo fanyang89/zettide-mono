@@ -11,12 +11,18 @@ flowchart LR
     Raw --> T2[Tier 2<br/>catalog Volumes + iSCSI]
     T2 --> Q[qtr managed backend]
     Q --> VM[libvirt / VM]
+    Shared[shared SCSI LUN] --> CAWFS[CAWFS shared mount]
+    CAWFS --> Q
     CP[zettide-control] -. desired state .-> T3[Tier 3<br/>distributed Volume Engine]
     Nodes[remote Replica nodes] <-->|NVMf| T3
     T3 -->|iSCSI publication| Q
 ```
 
 Tier 1 直接挂载文件系统。Tier 2 在一个存储节点上增加常驻服务、multi-Volume catalog、动态 Pool、block export 和 qtr attachment。Tier 3 在保持 VM-facing contract 的同时增加复制控制面和跨节点数据路径。
+
+CAWFS shared-file profile 与 Tier 2/3 block path 并列：qtr 仍向 libvirt 提供
+file disk，但持久身份是 CAWFS volume/image ID，host-local mount path 不是权威。
+该 profile 的 image owner epoch 与 block Volume write epoch 是不同版本域。
 
 ## Tier 3 目标上下文
 
@@ -201,5 +207,6 @@ Raft 不进入这个逐 I/O 同步路径。
 | Replica generation | 单个 Replica 数据实例 | 区分重建后的数据代次 |
 | Lease ID | 单次 primary 授权 | 区分具体授权实例 |
 | Revision | 控制面状态 | 已 apply 的元数据版本 |
+| CAWFS image owner epoch | 单个 shared qcow2 | 隔离旧 qtr/FUSE writer；接管前仍要求外部 hard fence |
 
 这些值不得相互替代或隐式转换。

@@ -10,6 +10,7 @@
 | 控制面当前范围 | [`../../../zettide-control/README.md`](../../../zettide-control/README.md) |
 | 数据面当前能力 | [`../../../zettide/README.md`](../../../zettide/README.md) |
 | qtr VM 与外部存储当前能力 | [`../../../qtr/README.md`](../../../qtr/README.md), [`../../../qtr/docs/external-storage.md`](../../../qtr/docs/external-storage.md), [`../../../qtr/docs/vm-configuration.md`](../../../qtr/docs/vm-configuration.md) |
+| CAWFS shared qcow2 契约 | [`12-cawfs-shared-qcow2.md`](12-cawfs-shared-qcow2.md), [`../../../zettide-cawfs/README.md`](../../../zettide-cawfs/README.md) |
 | Raft 概览和安全边界 | [`../../../raft-zig/README.md`](../../../raft-zig/README.md)（其中 scaffold/planned 状态说明已落后于当前源码） |
 | RPC 功能和限制 | [`../../../grpc-lite/README.md`](../../../grpc-lite/README.md) |
 
@@ -109,6 +110,18 @@
 | VM file/block disk 与 libvirt reconciliation | [`../../../qtr/src/vm.rs`](../../../qtr/src/vm.rs) |
 
 当前 qtr storage driver 与 VM disk path 相互独立；没有 Zettide Volume identity、managed publication 或持久 attachment reconciliation。
+
+## zettide-cawfs
+
+| 主题 | 文件 |
+| --- | --- |
+| transaction 与 Store 契约 | [`../../../zettide-cawfs/src/transaction.zig`](../../../zettide-cawfs/src/transaction.zig), [`../../../zettide-cawfs/src/store.zig`](../../../zettide-cawfs/src/store.zig) |
+| SCSI CAW 与 whole-LUN Linux transport | [`../../../zettide-cawfs/src/scsi.zig`](../../../zettide-cawfs/src/scsi.zig), [`../../../zettide-cawfs/src/linux_sg_io.zig`](../../../zettide-cawfs/src/linux_sg_io.zig) |
+| mutable data transport | [`../../../zettide-cawfs/src/data_block.zig`](../../../zettide-cawfs/src/data_block.zig) |
+| persistent extent allocator | [`../../../zettide-cawfs/src/extent_allocator.zig`](../../../zettide-cawfs/src/extent_allocator.zig) |
+
+当前尚无 SCSI-backed immutable Store、inode/directory/file extent map、CAWFS
+`FilesystemBackend` adapter 或 qtr shared-image source。
 
 ## 尚无实现的目标能力
 
