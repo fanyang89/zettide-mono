@@ -138,6 +138,18 @@ mise run check
 mise tasks
 ```
 
+For low-latency Zig development, keep one component's compiler running in
+incremental watch mode:
+
+```sh
+mise run dev:zettide
+mise run dev:grpc-lite
+```
+
+Equivalent `dev:*` tasks are available for every Zig component. Incremental
+compilation is experimental, so use the regular `test:*` or `check` tasks to
+validate changes before committing.
+
 Update owned components and managed dependencies to the latest revision of
 their tracked branches and commit the resulting submodule pointers:
 
