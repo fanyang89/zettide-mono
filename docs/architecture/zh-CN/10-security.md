@@ -25,7 +25,7 @@ grpc-lite 支持明文 HTTP/2 和可选 TLS 1.2+、服务端证书、客户端�
 - 系统 CA 自动发现。
 - xDS、ALTS 或云身份凭据。
 
-因此可选 TLS 可以提供链路加密和服务端认证，但不能证明调用方是合法 Node。`cluster_id`、`node_id` 和 metadata 用于协议/配置校验，不是认证凭据。当前 `raft-zig` grpc-lite transport 是明文可信网络 transport。
+因此可选 TLS 可以提供链路加密和服务端认证，但不能证明调用方是合法 Node。`cluster_id`、`node_id` 和 metadata 用于协议/配置校验，不是认证凭据。当前 `raftz` grpc-lite transport 是明文可信网络 transport。
 
 ## 威胁边界
 

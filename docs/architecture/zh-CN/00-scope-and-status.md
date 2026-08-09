@@ -19,7 +19,7 @@ Tier 3 将复制元数据控制面与高性能存储数据面组合为分布式�
 
 - `zettide-control` 保存 Pool、Volume、Node、Replica、placement 和写入权威。
 - `zettide` 在每个存储节点管理本地介质、Volume 副本和前端访问。
-- `raft-zig` 复制权威元数据。
+- `raftz` 复制权威元数据。
 - `grpc-lite` 承载除数据块之外的控制通信。
 - SPDK/NVMf 承载节点之间的副本读写和重同步数据。
 - SPDK/iSCSI 承载 Zettide 与 qtr host 之间的 VM block I/O。

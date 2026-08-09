@@ -9,7 +9,7 @@ its persistent incremental watch task instead of repeatedly invoking one-shot
 ```bash
 mise run dev:etz
 mise run dev:grpc-lite
-mise run dev:raft-zig
+mise run dev:raftz
 mise run dev:zettide
 mise run dev:zettide-cawfs
 mise run dev:zettide-control

@@ -10,7 +10,7 @@
 
 - `zettide-control`：元数据和集群控制面
 - `zettide`：本地存储格式、文件系统和目标数据面
-- `raft-zig`：控制面共识、WAL、快照和成员关系
+- `raftz`：控制面共识、WAL、快照和成员关系
 - `grpc-lite`：控制 RPC 和 Raft transport
 - SPDK 与 iSCSI：目标单节点 VM-facing block export
 - SPDK 与 NVMe over Fabrics（NVMf）：目标跨节点 Replica 数据路径

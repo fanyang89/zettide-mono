@@ -20,7 +20,7 @@ BlobFilesystem 是当前 `zettide` 唯一的文件系统产品。backend-neutral
 
 运行 DataService、Volume Engine 和 SPDK/NVMf 的受管存储节点，使用稳定 `node_id`。
 
-`raft-zig` 的 node 是 Raft 参与者，属于另一个身份域。
+`raftz` 的 node 是 Raft 参与者，属于另一个身份域。
 
 ## Member
 

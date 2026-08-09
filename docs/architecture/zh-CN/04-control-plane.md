@@ -70,7 +70,7 @@ sequenceDiagram
 
 ID、时间、随机数和 placement 选择必须由 leader 在 proposal 前生成并写入 command，所有 voter 对相同 command 执行相同 apply。
 
-状态机 apply/restore 必须原子。`raft-zig` 将 apply error 视为 terminal，因此业务冲突应编码为确定性结果，而不是破坏 Raftor 的运行错误。
+状态机 apply/restore 必须原子。`raftz` 将 apply error 视为 terminal，因此业务冲突应编码为确定性结果，而不是破坏 Raftor 的运行错误。
 
 ## 幂等
 
@@ -86,7 +86,7 @@ grpc-lite 不自动重试，但调用者遇到 deadline 或连接失败时无法
 
 ## 线性一致读取
 
-默认权威读取使用 `raft-zig` ReadIndex：
+默认权威读取使用 `raftz` ReadIndex：
 
 1. 请求由当前 leader 接受。
 2. Leader 完成当前任期的 quorum read barrier。

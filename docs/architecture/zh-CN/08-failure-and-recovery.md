@@ -140,4 +140,4 @@ Tier 3 恢复存储服务与恢复 VM 执行是不同动作：
 
 ## 当前差距
 
-`raft-zig` 已有 WAL/snapshot 恢复，`zettide-control` 已有 daemon restart/failover 测试，`zettide` 已有本地 A/B header、control journal、authority scan 和 write freeze。尚无 control-to-data reconciliation recovery、qtr attachment recovery、分布式 commit manifest、自动 storage primary failover、scrub 或 online repair。
+`raftz` 已有 WAL/snapshot 恢复，`zettide-control` 已有 daemon restart/failover 测试，`zettide` 已有本地 A/B header、control journal、authority scan 和 write freeze。尚无 control-to-data reconciliation recovery、qtr attachment recovery、分布式 commit manifest、自动 storage primary failover、scrub 或 online repair。

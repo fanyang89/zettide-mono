@@ -11,7 +11,7 @@
 | 数据面当前能力 | [`../../../zettide/README.md`](../../../zettide/README.md) |
 | qtr VM 与外部存储当前能力 | [`../../../qtr/README.md`](../../../qtr/README.md), [`../../../qtr/docs/external-storage.md`](../../../qtr/docs/external-storage.md), [`../../../qtr/docs/vm-configuration.md`](../../../qtr/docs/vm-configuration.md) |
 | CAWFS shared qcow2 契约 | [`12-cawfs-shared-qcow2.md`](12-cawfs-shared-qcow2.md), [`../../../zettide-cawfs/README.md`](../../../zettide-cawfs/README.md) |
-| Raft 概览和安全边界 | [`../../../raft-zig/README.md`](../../../raft-zig/README.md)（其中 scaffold/planned 状态说明已落后于当前源码） |
+| Raft 概览和安全边界 | [`../../../raftz/README.md`](../../../raftz/README.md)（其中 scaffold/planned 状态说明已落后于当前源码） |
 | RPC 功能和限制 | [`../../../grpc-lite/README.md`](../../../grpc-lite/README.md) |
 
 ## zettide-control
@@ -31,22 +31,22 @@
 
 当前已有 durable Volume metadata intent、Node/Member registration 和 leader-local heartbeat 首个切片；尚无 placement、Replica/Allocation/Attachment mutation 或 reconciliation 实现。
 
-## raft-zig
+## raftz
 
 | 主题 | 文件 |
 | --- | --- |
-| 公共 API | [`../../../raft-zig/src/root.zig`](../../../raft-zig/src/root.zig) |
-| Raft 状态机 | [`../../../raft-zig/src/raft.zig`](../../../raft-zig/src/raft.zig) |
-| RawNode/Ready | [`../../../raft-zig/src/raw_node.zig`](../../../raft-zig/src/raw_node.zig) |
-| Raftor、proposal、ReadIndex、恢复 | [`../../../raft-zig/src/raftor.zig`](../../../raft-zig/src/raftor.zig) |
-| Raftor queue/snapshot 配置 | [`../../../raft-zig/src/raftor_config.zig`](../../../raft-zig/src/raftor_config.zig) |
-| StateMachine 契约 | [`../../../raft-zig/src/state_machine.zig`](../../../raft-zig/src/state_machine.zig) |
-| Durable membership | [`../../../raft-zig/src/cluster_membership.zig`](../../../raft-zig/src/cluster_membership.zig) |
-| Segmented WAL | [`../../../raft-zig/src/wal.zig`](../../../raft-zig/src/wal.zig) |
-| Transport 抽象 | [`../../../raft-zig/src/transport.zig`](../../../raft-zig/src/transport.zig) |
-| grpc-lite transport | [`../../../raft-zig/src/rpc/grpc_lite_transport.zig`](../../../raft-zig/src/rpc/grpc_lite_transport.zig) |
-| 多节点测试 | [`../../../raft-zig/tests/multi_node_test.zig`](../../../raft-zig/tests/multi_node_test.zig) |
-| grpc transport 测试 | [`../../../raft-zig/tests/grpc_raftor_test.zig`](../../../raft-zig/tests/grpc_raftor_test.zig) |
+| 公共 API | [`../../../raftz/src/root.zig`](../../../raftz/src/root.zig) |
+| Raft 状态机 | [`../../../raftz/src/raft.zig`](../../../raftz/src/raft.zig) |
+| RawNode/Ready | [`../../../raftz/src/raw_node.zig`](../../../raftz/src/raw_node.zig) |
+| Raftor、proposal、ReadIndex、恢复 | [`../../../raftz/src/raftor.zig`](../../../raftz/src/raftor.zig) |
+| Raftor queue/snapshot 配置 | [`../../../raftz/src/raftor_config.zig`](../../../raftz/src/raftor_config.zig) |
+| StateMachine 契约 | [`../../../raftz/src/state_machine.zig`](../../../raftz/src/state_machine.zig) |
+| Durable membership | [`../../../raftz/src/cluster_membership.zig`](../../../raftz/src/cluster_membership.zig) |
+| Segmented WAL | [`../../../raftz/src/wal.zig`](../../../raftz/src/wal.zig) |
+| Transport 抽象 | [`../../../raftz/src/transport.zig`](../../../raftz/src/transport.zig) |
+| grpc-lite transport | [`../../../raftz/src/rpc/grpc_lite_transport.zig`](../../../raftz/src/rpc/grpc_lite_transport.zig) |
+| 多节点测试 | [`../../../raftz/tests/multi_node_test.zig`](../../../raftz/tests/multi_node_test.zig) |
+| grpc transport 测试 | [`../../../raftz/tests/grpc_raftor_test.zig`](../../../raftz/tests/grpc_raftor_test.zig) |
 
 ## grpc-lite
 

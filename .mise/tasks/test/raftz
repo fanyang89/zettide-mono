@@ -1,6 +1,6 @@
 #!/bin/sh
-#MISE description="Test raft-zig"
+#MISE description="Test raftz"
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
-exec mise -C "$root/raft-zig" run test
+exec mise -C "$root/raftz" run test

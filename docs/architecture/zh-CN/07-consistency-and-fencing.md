@@ -165,4 +165,4 @@ Attachment 状态转换遵守以下顺序：
 
 ## 当前差距
 
-当前已有 `raft-zig` 的共识/WAL/ReadIndex，以及 `zettide` 本地写失败冻结和控制记录扫描。尚未实现 managed iSCSI publication、qtr attachment reconciliation、Volume lease、write epoch、Replica 持久 fencing、2/3 数据提交证据和 epoch-bound NVMf access。
+当前已有 `raftz` 的共识/WAL/ReadIndex，以及 `zettide` 本地写失败冻结和控制记录扫描。尚未实现 managed iSCSI publication、qtr attachment reconciliation、Volume lease、write epoch、Replica 持久 fencing、2/3 数据提交证据和 epoch-bound NVMf access。

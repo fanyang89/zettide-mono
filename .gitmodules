@@ -2,9 +2,9 @@
 	path = grpc-lite
 	url = https://github.com/fanyang89/grpc-lite.git
 	branch = main
-[submodule "raft-zig"]
-	path = raft-zig
-	url = https://github.com/fanyang89/raft-zig.git
+[submodule "raftz"]
+	path = raftz
+	url = https://github.com/fanyang89/raftz.git
 	branch = main
 [submodule "etz"]
 	path = etz

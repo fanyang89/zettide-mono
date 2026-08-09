@@ -13,7 +13,7 @@
 | Volume/Replica 创建和删除 | grpc-lite |
 | Primary、lease、epoch 与 fencing 协调 | grpc-lite |
 | NVMf endpoint/namespace 发现 | grpc-lite |
-| 控制节点间 Raft 消息 | raft-zig over grpc-lite |
+| 控制节点间 Raft 消息 | raftz over grpc-lite |
 
 iSCSI 是外部 VM block transport；NVMf 是 Tier 3 内部 Replica transport。二者不能因都承载 block I/O 而合并生命周期或安全身份。
 

@@ -37,7 +37,7 @@ flowchart LR
         Loop[Control Loop]
         Barrier[ReadIndex Barrier]
         SM[内存元数据状态机]
-        Raft[raft-zig]
+        Raft[raftz]
         WAL[WAL]
         Snapshot[Snapshot]
         API --> Loop --> Raft
@@ -98,7 +98,7 @@ flowchart LR
 
 当前已实现 Pool、Node、Member 和 Volume metadata API/state machine，静态多 voter Raft runtime、WAL、snapshot、ReadIndex、grpc-lite transport 和恢复测试。Placement、Replica mutation、lease、reconciliation 和数据面装配尚未实现。
 
-### raft-zig
+### raftz
 
 职责：
 

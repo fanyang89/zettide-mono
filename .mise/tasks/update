@@ -4,10 +4,10 @@ set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 git -C "$root" submodule update --init --remote -- \
-  grpc-lite raft-zig etz qtr zettide-cawfs zettide third_party/spdk
+  grpc-lite raftz etz qtr zettide-cawfs zettide third_party/spdk
 git -C "$root" submodule update --init --recursive -- \
-  grpc-lite raft-zig etz qtr zettide-cawfs zettide third_party/spdk
-git -C "$root" add grpc-lite raft-zig etz qtr zettide-cawfs zettide third_party/spdk
+  grpc-lite raftz etz qtr zettide-cawfs zettide third_party/spdk
+git -C "$root" add grpc-lite raftz etz qtr zettide-cawfs zettide third_party/spdk
 if git -C "$root" diff --cached --quiet; then
   printf '%s\n' "All submodules are already up to date"
   exit 0
