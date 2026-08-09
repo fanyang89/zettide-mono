@@ -10,7 +10,11 @@ Volume 命名空间、Member 容量和默认保护策略边界。Tier 2 Pool 位
 
 向文件系统或 VM-facing frontend 提供固定逻辑容量和块语义的存储资源。Volume 属于一个 Pool，可以继承 Pool default protection 或使用自身 override；Tier 3 Volume 还具有 Replica 集合、primary、lease 和 write epoch。
 
-当前控制面 Volume 是 durable `PROVISIONING` metadata intent，支持 Create/Get 和无依赖条件下的 tombstone Delete；尚未接通 placement、数据面或前端。`zettide` 也使用 Volume 表示可挂载 littlefs 容器或建立在本地 Pool 上的文件系统实例。
+当前控制面 Volume 是 durable `PROVISIONING` metadata intent，支持 Create/Get 和无依赖条件下的 tombstone Delete；尚未接通 placement、数据面或前端。本地文件系统产品使用 BlobFilesystem，不把它称为 Volume。
+
+## BlobFilesystem 与 Blob store
+
+BlobFilesystem 是当前 `zettide` 唯一的文件系统产品。backend-neutral FUSE/POSIX frontend 将其挂载到 Linux；其 immutable blob 与 COW metadata 由 Blob stores 持久化到 regular Blob file 或 raw-disk Blob Pool。CAWFS 是独立共享存储方向，不是 BlobFilesystem backend。
 
 ## Node
 
@@ -90,7 +94,7 @@ RDMA 是目标低延迟数据 transport。InfiniBand、RoCE 和 iWARP 是不同 
 
 ## Tier 1 / Tier 2 / Tier 3
 
-- Tier 1：从 container file 或 raw devices 提供本机 FUSE 文件系统。
+- Tier 1：从 regular Blob file 或 raw-disk Blob Pool 提供本机 BlobFilesystem FUSE/POSIX mount。
 - Tier 2：一个 Zettide storage node 通过 iSCSI 向 qtr 提供受管 catalog Volume。
 - Tier 3：多 storage nodes 同步复制 Volume，执行 storage failover、repair 和 qtr republish。
 

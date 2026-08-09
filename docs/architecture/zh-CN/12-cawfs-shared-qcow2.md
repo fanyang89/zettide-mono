@@ -5,13 +5,14 @@
 ## 决策
 
 qtr 的首条 CAWFS 接入路径是把 qcow2 保存到多个计算主机共同挂载的
-CAWFS namespace。qtr 和 libvirt 继续使用普通文件路径；Zettide 提供
-backend-neutral FUSE/POSIX 层，CAWFS 提供共享 LUN 上的事务、对象、extent
-分配和条件发布。
+CAWFS namespace。qtr 和 libvirt 继续使用普通文件路径；独立的 CAWFS 方向
+提供 backend-neutral FUSE/POSIX frontend，以及共享 LUN 上的事务、对象、
+extent 分配和条件发布。
 
 该路径是现有 managed raw Volume/iSCSI 路线之外的 shared-file profile，
 不替代后者，也不改变 Tier 2/3 block Volume 的 publication、Replica 或
-snapshot 语义。
+snapshot 语义。它也不是当前 Blob-only Zettide 文件系统产品的 backend；
+BlobFilesystem 和 CAWFS 不通过产品 backend selector 互换。
 
 ```text
 qtr manifest: CAWFS volume ID + image ID
@@ -23,7 +24,7 @@ host-local path resolver
 libvirt / QEMU qcow2 file
         |
         v
-Zettide backend-neutral FUSE
+CAWFS backend-neutral FUSE/POSIX frontend
         |
         v
 CAWFS filesystem model and transactional engine
@@ -187,9 +188,9 @@ volume。mount service 必须使用 host-local singleton lock 防止重复实例
 ## 实施顺序
 
 1. 完成 CAWFS SCSI-backed immutable object store 和统一 block-device fault model。
-2. 在 Zettide 定义 backend-neutral filesystem interface，并保留 littlefs adapter。
+2. 在独立 CAWFS 方向定义 backend-neutral filesystem interface。
 3. 实现 CAWFS inode、directory、file extent map、ownership 和 POSIX transaction。
-4. 将 Linux FUSE 从 legacy `Volume` 解耦并增加 CAWFS adapter/mount service。
+4. 实现 CAWFS FUSE/POSIX adapter 和受管 mount service，不接入 Zettide BlobFilesystem 产品的 backend selector。
 5. 通过 `qemu-img` 和真实 QEMU 的 cache、lock、sparse、flush、crash 资格测试。
 6. qtr 增加稳定 CAWFS image source、持久 attachment intent 和 start/stop reconciliation。
 7. 接入显式 fencing provider，完成双 host shared-LUN E2E。

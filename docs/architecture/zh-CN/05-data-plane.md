@@ -4,7 +4,7 @@
 
 ## Tier 1：本地文件系统
 
-当前 Linux 前端是 foreground FUSE + littlefs。Backend 可以是 sparse container file，或显式选择的 raw Pool。产品 CLI 对 raw Pool 只支持一个无保护设备或三个复制设备；Tier 1 不内建网络文件服务。
+当前 Linux 路径使用 backend-neutral foreground FUSE/POSIX frontend 挂载 BlobFilesystem。Blob stores 可以位于 regular Blob file，或显式选择的 raw-disk Blob Pool；当前文件系统产品只支持 BlobFilesystem，不提供 backend selector。产品 CLI 对 raw-disk Blob Pool 只支持一个无保护设备或三个复制设备；Tier 1 不内建网络文件服务。
 
 `zettide serve dufs` 可以把 file-backed 或单设备 target 挂载到私有 FUSE 目录，并监管 PATH 中的外部 dufs 进程。HTTP/WebDAV、认证与 TLS 由 dufs 提供，不属于存储格式或 Tier 1 核心数据路径；任一进程退出时，CLI 清理私有挂载。
 
@@ -52,7 +52,7 @@ flowchart LR
 
 ## VM-facing 前端
 
-Tier 1 当前 Linux 前端是 FUSE + littlefs。Tier 2/3 面向 qtr 的首个 block frontend 是标准 iSCSI publication。FUSE 可以继续作为本地文件系统 frontend；vhost-user-blk 是已具备库级原语的可选 VM frontend。
+Tier 1 当前 Linux 前端是 backend-neutral FUSE/POSIX frontend，当前只接入 BlobFilesystem。Tier 2/3 面向 qtr 的首个 block frontend 是标准 iSCSI publication。FUSE 可以继续作为本地文件系统 frontend；vhost-user-blk 是已具备库级原语的可选 VM frontend。
 
 在 Tier 3 中，iSCSI target 不是写入权威，所有写入仍由当前 Volume primary 协调。首版将 publication 与 primary 共置，避免增加一条尚未设计的 frontend-to-primary forwarding protocol；qtr host 可以位于其他主机。Primary 切换时在新 primary 激活更高 access generation 的 publication，再由指定 qtr host 重建 session/attachment。未来若允许 publication 与 primary 分离，必须先冻结并验证独立的 forwarding protocol，不能隐式复用 Replica NVMf transport。
 

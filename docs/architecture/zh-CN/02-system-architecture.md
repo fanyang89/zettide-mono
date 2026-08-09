@@ -6,8 +6,8 @@
 
 ```mermaid
 flowchart LR
-    File[容器文件] --> T1[Tier 1<br/>FUSE mount]
-    Raw[本地 raw Members] --> T1
+    File[regular Blob file] --> T1[Tier 1<br/>BlobFilesystem<br/>FUSE/POSIX mount]
+    Raw[raw-disk Blob Pool] --> T1
     Raw --> T2[Tier 2<br/>catalog Volumes + iSCSI]
     T2 --> Q[qtr managed backend]
     Q --> VM[libvirt / VM]
@@ -20,9 +20,10 @@ flowchart LR
 
 Tier 1 直接挂载文件系统。Tier 2 在一个存储节点上增加常驻服务、multi-Volume catalog、动态 Pool、block export 和 qtr attachment。Tier 3 在保持 VM-facing contract 的同时增加复制控制面和跨节点数据路径。
 
-CAWFS shared-file profile 与 Tier 2/3 block path 并列：qtr 仍向 libvirt 提供
-file disk，但持久身份是 CAWFS volume/image ID，host-local mount path 不是权威。
-该 profile 的 image owner epoch 与 block Volume write epoch 是不同版本域。
+独立的 CAWFS shared-file 方向与 Tier 2/3 block path 并列：qtr 仍向 libvirt
+提供 file disk，但持久身份是 CAWFS volume/image ID，host-local mount path 不是
+权威。CAWFS 不是当前 Blob-only Zettide 文件系统产品的 backend；该方向的 image
+owner epoch 与 block Volume write epoch 是不同版本域。
 
 ## Tier 3 目标上下文
 
@@ -122,7 +123,8 @@ grpc-lite 不负责数据副本复制，也不提供自动 RPC retry、负载均
 
 当前职责：
 
-- 管理容器、littlefs、对象层和 FUSE 前端。
+- 管理 regular Blob file、raw-disk Blob Pool、Blob stores 和 BlobFilesystem。
+- 提供 backend-neutral FUSE/POSIX frontend；当前产品只接入 BlobFilesystem。
 - 管理 Member v3 格式、Pool topology、layout 和 control journal。
 - 通过本地 `ReplicaEndpoint` 访问 Member 数据区域。
 - 在本地三成员复制失败后冻结 writer。
@@ -174,7 +176,7 @@ grpc-lite 不负责数据副本复制，也不提供自动 RPC retry、负载均
 
 ## Tier 1 数据路径
 
-应用 syscall 经 FUSE/littlefs 访问容器文件或 raw Pool。该路径不依赖 qtr、SPDK daemon 或 `zettide-control`。
+应用 syscall 经 backend-neutral FUSE/POSIX frontend 访问 BlobFilesystem；Blob stores 位于 regular Blob file 或 raw-disk Blob Pool 上。该路径不依赖 qtr、SPDK daemon 或 `zettide-control`。
 
 ## Tier 2 数据路径
 

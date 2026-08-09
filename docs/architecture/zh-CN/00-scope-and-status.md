@@ -6,7 +6,7 @@
 
 Zettide 按三个累积层级交付存储能力：
 
-- Tier 1 由 `zettide` 直接从容器文件或本地 raw Pool 提供 FUSE 文件系统。
+- Tier 1 由 `zettide` 从 regular Blob file 或本地 raw-disk Blob Pool 提供 BlobFilesystem，并通过 backend-neutral FUSE/POSIX frontend 挂载。
 - Tier 2 在一个存储节点上管理 Pool、catalog Volume 和 block export，并通过 iSCSI 接入 qtr。
 - Tier 3 将权威元数据和 Volume Replica 扩展到多个存储节点，提供 storage failover、repair 和 qtr republish。
 
@@ -31,7 +31,7 @@ Tier 3 将复制元数据控制面与高性能存储数据面组合为分布式�
 
 | Tier | 当前状态 | 完成标准 |
 | --- | --- | --- |
-| Tier 1 | 部分 | file-backed 与 raw-device FUSE mount 当前可用；完整 Tier 还需满足声明的 POSIX profile 和全部准入测试 |
+| Tier 1 | 部分 | file-backed 与 raw-device BlobFilesystem FUSE mount 当前可用；完整 Tier 还需满足声明的 POSIX profile 和全部准入测试 |
 | Tier 2 | 部分 | 常驻服务管理动态 Pool 与 catalog Volume；SPDK iSCSI export 和 qtr managed backend 完成 create/publish/attach/restart/detach E2E |
 | Tier 3 | 目标 | 跨节点 2/3 持久提交、lease/epoch fencing、自动 storage failover/repair，以及指定 qtr host 的 republish E2E |
 
@@ -46,7 +46,7 @@ Tier 3 将复制元数据控制面与高性能存储数据面组合为分布式�
 | Node 注册与心跳 | 部分 | durable Register/Get/List 已实现并经过 Raft 复制；leader-local Report/Get heartbeat 已实现 Node incarnation/sequence、Member presence 和可选 extent capacity | 增加能力更新、隔离、注销、路径和 Replica 观测 |
 | Member 注册 | 当前 | durable Register/Get/List 已实现；显式绑定控制面 Pool、Node 与本地 set | 增加生命周期和 observed report |
 | Placement 与 reconciliation | 目标 | 尚未实现 | 按故障域放置、修复和迁移副本 |
-| 本地容器和文件系统 | 当前 | littlefs、对象层、FUSE 和恢复路径已实现 | 作为本地前端和持久化基础 |
+| 本地 BlobFilesystem | 当前 | Blob stores、BlobFilesystem、backend-neutral FUSE/POSIX frontend 和恢复路径已实现 | 作为 Blob-only 本地文件系统产品 |
 | 本地 raw Pool | 当前 | 支持单盘和三个本地成员复制 | 接入跨节点资源模型 |
 | 本地复制写入 | 当前 | 三个 endpoint 全部写入，任一失败冻结 writer | 演进为三副本、2/3 持久确认 |
 | 动态本地成员控制 | 部分 | topology、membership 和 control journal 库级能力已实现 | 接入控制面编排与产品生命周期 |
@@ -55,7 +55,7 @@ Tier 3 将复制元数据控制面与高性能存储数据面组合为分布式�
 | vhost-user-blk export | 部分 | catalog Volume 到 vhost block controller 的库级生命周期已实现 | 保留为可选 VM frontend，不作为 Tier 2 首发协议 |
 | iSCSI export | 目标 | vendored SPDK 具备 iSCSI target，但 Zettide 尚未封装或发布 Volume | 作为 Tier 2 首个 qtr managed protocol |
 | qtr iSCSI host 连接 | 部分 | 可手动注册、扫描、login/logout 并发现 Linux block device | 增加 Zettide backend 和 attachment reconciliation |
-| CAWFS shared qcow2 | 部分 | transaction、SCSI CAW/data transport、voting 和 persistent extent allocator 已存在；尚无 POSIX/FUSE 或 qtr 接线 | 多 host shared mount、per-image single-writer 和 fenced takeover |
+| CAWFS shared qcow2 | 部分 | 独立 CAWFS 方向已有 transaction、SCSI CAW/data transport、voting 和 persistent extent allocator；尚无 POSIX/FUSE 或 qtr 接线 | 多 host shared mount、per-image single-writer 和 fenced takeover |
 | NVMf initiator | 部分 | managed NVMe-oF TCP/RDMA controller wrapper 可连接并枚举 namespace | 接入受管 Replica session |
 | NVMf target | 目标 | 尚无受管 Replica subsystem、namespace 或 listener | 导出内部 Volume Replica namespace |
 | Primary、lease、epoch | 目标 | 尚无协议与数据面 enforcement | 单主同步复制和旧 primary fencing |
@@ -107,7 +107,7 @@ Tier 3 将复制元数据控制面与高性能存储数据面组合为分布式�
 
 当前具备：
 
-- 稀疏容器、littlefs、对象层和 Linux FUSE。
+- regular Blob file、raw-disk Blob Pool、Blob stores、BlobFilesystem 和 backend-neutral Linux FUSE/POSIX frontend。
 - 本地 raw block Pool 的安全创建、检查、打开和挂载。
 - Member v3 双头部、控制日志、authority 扫描和故障冻结。
 - 单成员无保护和三个本地成员复制。
